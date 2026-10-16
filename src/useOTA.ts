@@ -111,8 +111,14 @@ export function createOTAController(
     });
 
     try {
+      const resolvedUrl =
+        manifestToDownload.bundleUrl.startsWith('http://') ||
+        manifestToDownload.bundleUrl.startsWith('https://')
+          ? manifestToDownload.bundleUrl
+          : `${options.serverUrl.replace(/\/+$/, '')}/${manifestToDownload.bundleUrl.replace(/^\/+/, '')}`;
+
       const bundleBytes = await downloadBundle(
-        manifestToDownload.bundleUrl,
+        resolvedUrl,
         (percent) => {
           updateState({ progress: percent });
           options.onDownloadProgress?.(percent);
