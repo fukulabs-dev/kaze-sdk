@@ -1,5 +1,6 @@
 import Foundation
 import React
+import zlib
 
 @objc(OtaModule)
 public class OtaModule: NSObject {
@@ -99,6 +100,169 @@ public class OtaModule: NSObject {
 
         let exists = FileManager.default.fileExists(atPath: fileURL.path)
         resolve(exists)
+    }
+
+    private func decompressRawDeflate(compressed: Data, expectedSize: Int) -> Data? {
+        var stream = z_stream()
+        let initStatus = inflateInit2_(&stream, -15, zlibVersion(), Int32(MemoryLayout<z_stream>.size))
+        guard initStatus == Z_OK else { return nil }
+        defer { inflateEnd(&stream) }
+
+        var output = Data(count: max(expectedSize, 1024))
+        var totalOut = 0
+
+        return compressed.withUnsafeBytes { (rawIn: UnsafeRawBufferPointer) -> Data? in
+            guard let inBase = rawIn.baseAddress?.assumingMemoryBound(to: Bytef.self) else { return nil }
+            stream.next_in = UnsafeMutablePointer(mutating: inBase)
+            stream.avail_in = uInt(compressed.count)
+
+            var status = Z_OK
+            while status == Z_OK {
+                if totalOut >= output.count {
+                    output.count *= 2
+                }
+                let countBefore = totalOut
+                output.withUnsafeMutableBytes { (rawOut: UnsafeMutableRawBufferPointer) in
+                    guard let outBase = rawOut.baseAddress?.assumingMemoryBound(to: Bytef.self) else { return }
+                    stream.next_out = outBase.advanced(by: countBefore)
+                    stream.avail_out = uInt(output.count - countBefore)
+                    status = inflate(&stream, Z_NO_FLUSH)
+                    totalOut = output.count - Int(stream.avail_out)
+                }
+            }
+            guard status == Z_STREAM_END else { return nil }
+            output.count = totalOut
+            return output
+        }
+    }
+
+    @objc public func unzipBundleFile(_ zipRelativePath: String, targetSlotDir: String, resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+        guard let zipURL = resolveSafeURL(for: zipRelativePath),
+              let targetURL = resolveSafeURL(for: targetSlotDir) else {
+            reject("SECURITY_ERROR", "Invalid path traversal in parameters", nil)
+            return
+        }
+
+        guard FileManager.default.fileExists(atPath: zipURL.path) else {
+            reject("FILE_NOT_FOUND", "Source zip archive does not exist at \(zipRelativePath)", nil)
+            return
+        }
+
+        do {
+            try FileManager.default.createDirectory(at: targetURL, withIntermediateDirectories: true, attributes: nil)
+            let zipData = try Data(contentsOf: zipURL)
+            let count = zipData.count
+            guard count >= 22 else {
+                reject("INVALID_ZIP", "File is too small to be a valid zip archive", nil)
+                return
+            }
+
+            var eocdOffset = -1
+            let searchLimit = max(0, count - 65557)
+            zipData.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) in
+                guard let base = bytes.baseAddress else { return }
+                var i = count - 22
+                while i >= searchLimit {
+                    let sig = base.load(fromByteOffset: i, as: UInt32.self)
+                    if sig == 0x06054b50 {
+                        eocdOffset = i
+                        break
+                    }
+                    i -= 1
+                }
+            }
+
+            guard eocdOffset != -1 else {
+                reject("INVALID_ZIP", "End of Central Directory not found", nil)
+                return
+            }
+
+            let eocd = zipData.subdata(in: eocdOffset..<count)
+            let totalEntries = Int(eocd.withUnsafeBytes { $0.load(fromByteOffset: 10, as: UInt16.self) })
+            let cdOffset = Int(eocd.withUnsafeBytes { $0.load(fromByteOffset: 16, as: UInt32.self) })
+
+            var curr = cdOffset
+            let targetCanonical = targetURL.standardizedFileURL.path
+
+            for _ in 0..<totalEntries {
+                guard curr + 46 <= eocdOffset else { break }
+                let cdSig = zipData.withUnsafeBytes { $0.load(fromByteOffset: curr, as: UInt32.self) }
+                guard cdSig == 0x02014b50 else { break }
+
+                let method = Int(zipData.withUnsafeBytes { $0.load(fromByteOffset: curr + 10, as: UInt16.self) })
+                let compressedSize = Int(zipData.withUnsafeBytes { $0.load(fromByteOffset: curr + 20, as: UInt32.self) })
+                let uncompressedSize = Int(zipData.withUnsafeBytes { $0.load(fromByteOffset: curr + 24, as: UInt32.self) })
+                let fileNameLen = Int(zipData.withUnsafeBytes { $0.load(fromByteOffset: curr + 28, as: UInt16.self) })
+                let extraLen = Int(zipData.withUnsafeBytes { $0.load(fromByteOffset: curr + 30, as: UInt16.self) })
+                let commentLen = Int(zipData.withUnsafeBytes { $0.load(fromByteOffset: curr + 32, as: UInt16.self) })
+                let localOffset = Int(zipData.withUnsafeBytes { $0.load(fromByteOffset: curr + 42, as: UInt32.self) })
+
+                let fileNameData = zipData.subdata(in: (curr + 46)..<(curr + 46 + fileNameLen))
+                guard let fileName = String(data: fileNameData, encoding: .utf8) else {
+                    reject("INVALID_ZIP", "Cannot decode entry filename as UTF-8", nil)
+                    return
+                }
+
+                if fileName.contains("..") || fileName.hasPrefix("/") || fileName.hasPrefix("\\") {
+                    reject("SECURITY_ERROR", "Zip slip detected in entry: \(fileName)", nil)
+                    return
+                }
+
+                curr += 46 + fileNameLen + extraLen + commentLen
+
+                let destURL = targetURL.appendingPathComponent(fileName)
+                let destCanonical = destURL.standardizedFileURL.path
+                guard destCanonical.hasPrefix(targetCanonical + "/") || destCanonical == targetCanonical else {
+                    reject("SECURITY_ERROR", "Zip slip detected for entry: \(fileName)", nil)
+                    return
+                }
+
+                if fileName.hasSuffix("/") {
+                    try FileManager.default.createDirectory(at: destURL, withIntermediateDirectories: true, attributes: nil)
+                    continue
+                }
+
+                guard localOffset + 30 <= count else {
+                    reject("INVALID_ZIP", "Corrupt local header offset for \(fileName)", nil)
+                    return
+                }
+                let localNameLen = Int(zipData.withUnsafeBytes { $0.load(fromByteOffset: localOffset + 26, as: UInt16.self) })
+                let localExtraLen = Int(zipData.withUnsafeBytes { $0.load(fromByteOffset: localOffset + 28, as: UInt16.self) })
+                let dataStart = localOffset + 30 + localNameLen + localExtraLen
+                let dataEnd = dataStart + compressedSize
+
+                guard dataEnd <= count else {
+                    reject("INVALID_ZIP", "Truncated data for \(fileName)", nil)
+                    return
+                }
+
+                let compData = zipData.subdata(in: dataStart..<dataEnd)
+                var fileData: Data?
+
+                if method == 0 {
+                    fileData = compData
+                } else if method == 8 {
+                    fileData = decompressRawDeflate(compressed: compData, expectedSize: uncompressedSize)
+                    if fileData == nil {
+                        reject("DECOMPRESS_ERROR", "Failed to decompress deflate entry: \(fileName)", nil)
+                        return
+                    }
+                } else {
+                    reject("UNSUPPORTED_METHOD", "Unsupported compression method \(method) for \(fileName)", nil)
+                    return
+                }
+
+                if let validData = fileData {
+                    let parentDir = destURL.deletingLastPathComponent()
+                    try FileManager.default.createDirectory(at: parentDir, withIntermediateDirectories: true, attributes: nil)
+                    try validData.write(to: destURL, options: .atomic)
+                }
+            }
+
+            resolve(true)
+        } catch {
+            reject("UNZIP_ERROR", error.localizedDescription, error)
+        }
     }
 
     @objc public func getActiveSlot(_ resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {

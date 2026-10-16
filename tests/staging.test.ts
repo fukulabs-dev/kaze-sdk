@@ -315,4 +315,42 @@ describe('Bundle Staging & Native File Bridge', () => {
     expect(mockOta.switchActiveSlot).toHaveBeenCalledWith('slot_a');
     expect(activeSlot).toBe('slot_a');
   });
+
+  it('NativeFileSystemAdapter delegates unzip to native bridge', async () => {
+    const mockOta = {
+      unzipBundleFile: vi.fn().mockResolvedValue(true),
+    };
+    setNativeOtaModuleForTesting(mockOta);
+
+    const adapter = new NativeFileSystemAdapter();
+    const ok = await adapter.unzip('ota/staging.zip', 'ota/slot_a');
+    expect(ok).toBe(true);
+    expect(mockOta.unzipBundleFile).toHaveBeenCalledWith('ota/staging.zip', 'ota/slot_a');
+  });
+
+  it('unzipBundle successfully extracts deflated zip files when DecompressionStream is undefined (Hermes)', async () => {
+    interface GlobalWithDecompression {
+      DecompressionStream?: unknown;
+    }
+    const globalScope: GlobalWithDecompression = globalThis;
+    const originalDS = globalScope.DecompressionStream;
+    try {
+      delete globalScope.DecompressionStream;
+
+      const zipBytes = createTestZip({
+        'index.android.bundle': 'console.log("hermes extracted bundle");',
+        'assets/test.json': '{"ok":true}',
+      });
+
+      const files = await unzipBundle(zipBytes, 'android');
+      expect(files['index.android.bundle']).toBeDefined();
+      const bundleFile = files['index.android.bundle'];
+      const content = bundleFile instanceof Uint8Array
+        ? new TextDecoder().decode(bundleFile)
+        : String(bundleFile);
+      expect(content).toBe('console.log("hermes extracted bundle");');
+    } finally {
+      globalScope.DecompressionStream = originalDS;
+    }
+  });
 });

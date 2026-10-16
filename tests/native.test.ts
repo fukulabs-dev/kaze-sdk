@@ -13,6 +13,7 @@ import {
   getNativeActiveSlot,
   switchNativeActiveSlot,
   getNativeRollbackSlot,
+  nativeUnzipBundleFile,
   setNativeOtaModuleForTesting,
 } from '../src/native';
 import { NativeStorage } from '../src/storage';
@@ -37,6 +38,7 @@ describe('Native Module Bridge', () => {
     await expect(getNativeActiveSlot()).resolves.toBeNull();
     await expect(switchNativeActiveSlot('slot_b')).resolves.toBe(false);
     await expect(getNativeRollbackSlot()).resolves.toBeNull();
+    await expect(nativeUnzipBundleFile('ota/staging.zip', 'ota/slot_a')).resolves.toBe(false);
   });
 
   it('NativeStorage sets and gets keys with native synchronization', () => {
@@ -70,6 +72,7 @@ describe('Native Module Bridge', () => {
       getActiveSlot: vi.fn().mockResolvedValue('slot_a'),
       switchActiveSlot: vi.fn().mockResolvedValue(true),
       getRollbackSlot: vi.fn().mockResolvedValue(null),
+      unzipBundleFile: vi.fn().mockResolvedValue(true),
     };
 
     setNativeOtaModuleForTesting(mockOta);
@@ -115,5 +118,9 @@ describe('Native Module Bridge', () => {
     const rollbackSlot = await getNativeRollbackSlot();
     expect(rollbackSlot).toBeNull();
     expect(mockOta.getRollbackSlot).toHaveBeenCalledTimes(1);
+
+    const unzipped = await nativeUnzipBundleFile('ota/staging.zip', 'ota/slot_a');
+    expect(unzipped).toBe(true);
+    expect(mockOta.unzipBundleFile).toHaveBeenCalledWith('ota/staging.zip', 'ota/slot_a');
   });
 });

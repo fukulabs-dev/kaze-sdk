@@ -2,6 +2,7 @@ export interface FileSystemAdapter {
   writeFile(path: string, content: string | Uint8Array): Promise<void>;
   readFile(path: string): Promise<string | null>;
   exists(path: string): Promise<boolean>;
+  unzip?(zipRelativePath: string, targetSlotDir: string): Promise<boolean>;
 }
 import {
   getNativeOtaModule,
@@ -10,7 +11,9 @@ import {
   nativeBundleFileExists,
   getNativeActiveSlot,
   switchNativeActiveSlot,
+  nativeUnzipBundleFile,
 } from './native';
+import { inflateRaw } from './inflate';
 
 function uint8ArrayToBase64(bytes: Uint8Array): string {
   if (typeof Buffer !== 'undefined') {
@@ -88,6 +91,17 @@ export class NativeFileSystemAdapter implements FileSystemAdapter {
       return await nativeBundleFileExists(path);
     }
     return await this.fallback.exists(path);
+  }
+
+  async unzip(zipRelativePath: string, targetSlotDir: string): Promise<boolean> {
+    const mod = getNativeOtaModule();
+    if (mod && typeof mod.unzipBundleFile === 'function') {
+      return await nativeUnzipBundleFile(zipRelativePath, targetSlotDir);
+    }
+    if (typeof this.fallback.unzip === 'function') {
+      return await this.fallback.unzip(zipRelativePath, targetSlotDir);
+    }
+    return false;
   }
 }
 
@@ -228,7 +242,7 @@ export async function unzipBundle(
           const res = new Response(ds.readable);
           files[fileName] = new Uint8Array(await res.arrayBuffer());
         } else {
-          throw new Error('DecompressionStream is not supported in this runtime environment');
+          files[fileName] = inflateRaw(compData);
         }
       } else {
         throw new Error(`Unsupported compression method ${method} in zip archive`);
@@ -259,13 +273,17 @@ export async function unzipBundle(
     if (!fileName.endsWith('/')) {
       if (method === 0) {
         files[fileName] = compData;
-      } else if (method === 8 && typeof DecompressionStream !== 'undefined') {
-        const ds = new DecompressionStream('deflate-raw');
-        const writer = ds.writable.getWriter();
-        writer.write(compData);
-        writer.close();
-        const res = new Response(ds.readable);
-        files[fileName] = new Uint8Array(await res.arrayBuffer());
+      } else if (method === 8) {
+        if (typeof DecompressionStream !== 'undefined') {
+          const ds = new DecompressionStream('deflate-raw');
+          const writer = ds.writable.getWriter();
+          writer.write(compData);
+          writer.close();
+          const res = new Response(ds.readable);
+          files[fileName] = new Uint8Array(await res.arrayBuffer());
+        } else {
+          files[fileName] = inflateRaw(compData);
+        }
       }
     }
 

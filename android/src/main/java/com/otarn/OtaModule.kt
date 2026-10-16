@@ -7,6 +7,10 @@ import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.bridge.Promise
 import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
+import java.io.BufferedInputStream
+import java.util.zip.ZipInputStream
 class OtaModule(private val reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
     override fun getName(): String = "OtaModule"
 
@@ -97,6 +101,51 @@ class OtaModule(private val reactContext: ReactApplicationContext) : ReactContex
             promise.resolve(targetFile.exists())
         } catch (e: Exception) {
             promise.reject("FILE_EXISTS_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun unzipBundleFile(zipRelativePath: String, targetSlotDir: String, promise: Promise) {
+        try {
+            if (zipRelativePath.contains("..") || targetSlotDir.contains("..")) {
+                promise.reject("SECURITY_ERROR", "Path traversal detected in arguments")
+                return
+            }
+            val zipFile = File(reactContext.filesDir, zipRelativePath)
+            if (!zipFile.exists() || !zipFile.isFile) {
+                promise.reject("FILE_NOT_FOUND", "Source zip archive does not exist: $zipRelativePath")
+                return
+            }
+            val targetDir = File(reactContext.filesDir, targetSlotDir)
+            if (!targetDir.exists()) {
+                targetDir.mkdirs()
+            }
+            val canonicalTarget = targetDir.canonicalPath
+
+            ZipInputStream(BufferedInputStream(FileInputStream(zipFile))).use { zis ->
+                var entry = zis.nextEntry
+                while (entry != null) {
+                    val destFile = File(targetDir, entry.name)
+                    val canonicalDest = destFile.canonicalPath
+                    if (!canonicalDest.startsWith(canonicalTarget + File.separator) && canonicalDest != canonicalTarget) {
+                        promise.reject("SECURITY_ERROR", "Zip slip detected for entry: ${entry.name}")
+                        return
+                    }
+                    if (entry.isDirectory) {
+                        destFile.mkdirs()
+                    } else {
+                        destFile.parentFile?.mkdirs()
+                        FileOutputStream(destFile).use { fos ->
+                            zis.copyTo(fos)
+                        }
+                    }
+                    zis.closeEntry()
+                    entry = zis.nextEntry
+                }
+            }
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.reject("UNZIP_ERROR", e.message, e)
         }
     }
 

@@ -30,6 +30,10 @@ RCT_EXTERN_METHOD(readBundleFile:(NSString *)relativePath
 RCT_EXTERN_METHOD(bundleFileExists:(NSString *)relativePath
                   resolve:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(unzipBundleFile:(NSString *)zipRelativePath
+                  targetSlotDir:(NSString *)targetSlotDir
+                  resolve:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
 
 RCT_EXTERN_METHOD(getActiveSlot:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)

@@ -11,6 +11,7 @@ export interface NativeOtaModuleLike {
   getActiveSlot?: () => Promise<string | null> | string | null;
   switchActiveSlot?: (newSlot: string) => Promise<boolean> | boolean;
   getRollbackSlot?: () => Promise<string | null> | string | null;
+  unzipBundleFile?: (zipRelativePath: string, targetSlotDir: string) => Promise<boolean> | boolean;
 }
 
 let testingNativeModule: NativeOtaModuleLike | null = null;
@@ -134,4 +135,12 @@ export async function getNativeRollbackSlot(): Promise<string | null> {
     return await mod.getRollbackSlot();
   }
   return null;
+}
+
+export async function nativeUnzipBundleFile(zipRelativePath: string, targetSlotDir: string): Promise<boolean> {
+  const mod = getNativeOtaModule();
+  if (mod && typeof mod.unzipBundleFile === 'function') {
+    return await mod.unzipBundleFile(zipRelativePath, targetSlotDir);
+  }
+  return false;
 }
