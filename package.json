@@ -2,6 +2,25 @@
   "name": "@fukulabs/kaze",
   "version": "0.1.0",
   "description": "Kaze: React Native Client SDK for Over-The-Air updates by fukulabs.dev",
+  "license": "MIT",
+  "homepage": "https://github.com/fukulabs/kaze-react-native#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fukulabs/kaze-react-native.git"
+  },
+  "bugs": {
+    "url": "https://github.com/fukulabs/kaze-react-native/issues"
+  },
+  "keywords": [
+    "react-native",
+    "expo",
+    "expo-plugin",
+    "ota",
+    "over-the-air",
+    "updates",
+    "turbomodule",
+    "kaze"
+  ],
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -23,6 +42,7 @@
     "ios",
     "plugin/dist",
     "README.md",
+    "LICENSE",
     "fukulabs-kaze.podspec"
   ],
   "codegenConfig": {
