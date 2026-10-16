@@ -1,17 +1,45 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { ReleaseManifest, CheckUpdateRequest, CheckUpdateResponse } from './types';
+import type { ReleaseManifest } from './types';
+import { checkUpdate, downloadBundle, verifyBundleChecksum } from './updater';
+import { stageBundle, unzipBundle, MemoryFileSystemAdapter, type FileSystemAdapter } from './staging';
+import { restartApp } from './native';
+
+function resolvePlatform(platform?: 'android' | 'ios'): 'android' | 'ios' {
+  if (platform) return platform;
+  try {
+    const rn = require('react-native');
+    if (rn && typeof rn === 'object' && 'Platform' in rn) {
+      const p = rn.Platform;
+      if (p && typeof p === 'object' && 'OS' in p && (p.OS === 'android' || p.OS === 'ios')) {
+        return p.OS;
+      }
+    }
+  } catch {
+    // Pure JS / non-React Native environment
+  }
+  return 'android';
+}
+
+export type OTAStatus = 'idle' | 'checking' | 'downloading' | 'ready' | 'error';
 
 export interface UseOTAOptions {
   serverUrl: string;
   appId: string;
-  platform: 'android' | 'ios';
+  platform?: 'android' | 'ios';
   runtimeVersion: string;
   channel?: string;
   currentHash?: string;
   autoCheck?: boolean;
+  autoApply?: 'next-restart' | 'immediate';
+  fileSystem?: FileSystemAdapter;
+  onUpdateAvailable?: (manifest: ReleaseManifest) => void;
+  onDownloadProgress?: (progress: number) => void;
+  onUpdateStaged?: (manifest: ReleaseManifest) => void;
+  onError?: (error: Error) => void;
 }
 
 export interface OTAState {
+  status: OTAStatus;
   isChecking: boolean;
   isDownloading: boolean;
   progress: number;
@@ -24,13 +52,18 @@ export interface OTAController {
   getState: () => OTAState;
   subscribe: (listener: (state: OTAState) => void) => () => void;
   check: () => Promise<ReleaseManifest | null>;
+  checkForUpdate: () => Promise<ReleaseManifest | null>;
+  downloadAndStage: (manifest?: ReleaseManifest) => Promise<boolean>;
+  applyUpdate: () => Promise<void>;
 }
 
 export function createOTAController(
   options: UseOTAOptions,
-  fetchFn: typeof fetch = fetch
+  fetchFn: typeof fetch = fetch,
+  fileSystemAdapter?: FileSystemAdapter
 ): OTAController {
   let state: OTAState = {
+    status: 'idle',
     isChecking: false,
     isDownloading: false,
     progress: 0,
@@ -40,6 +73,8 @@ export function createOTAController(
   };
 
   const listeners = new Set<(state: OTAState) => void>();
+  const fs = options.fileSystem || fileSystemAdapter || new MemoryFileSystemAdapter();
+  const platform = resolvePlatform(options.platform);
 
   const updateState = (partial: Partial<OTAState>) => {
     state = { ...state, ...partial };
@@ -48,35 +83,110 @@ export function createOTAController(
     }
   };
 
-  const check = async (): Promise<ReleaseManifest | null> => {
-    updateState({ isChecking: true, error: null });
+  const applyUpdate = async (): Promise<void> => {
+    restartApp();
+  };
+
+  const downloadAndStage = async (targetManifest?: ReleaseManifest): Promise<boolean> => {
+    const manifestToDownload = targetManifest || state.manifest;
+    if (!manifestToDownload) {
+      return false;
+    }
+
+    updateState({
+      status: 'downloading',
+      isDownloading: true,
+      progress: 0,
+      error: null,
+    });
+
     try {
-      const params = new URLSearchParams({
-        appId: options.appId,
-        platform: options.platform,
-        runtimeVersion: options.runtimeVersion,
-        channel: options.channel || 'production',
+      const bundleBytes = await downloadBundle(
+        manifestToDownload.bundleUrl,
+        (percent) => {
+          updateState({ progress: percent });
+          options.onDownloadProgress?.(percent);
+        },
+        fetchFn
+      );
+
+      const isValid = verifyBundleChecksum(bundleBytes, manifestToDownload.bundleHash);
+      if (!isValid) {
+        throw new Error(
+          `Checksum mismatch: expected ${manifestToDownload.bundleHash}`
+        );
+      }
+
+      const files = await unzipBundle(bundleBytes, platform);
+      const stageResult = await stageBundle({
+        platform,
+        bundleHash: manifestToDownload.bundleHash,
+        files,
+        fileSystem: fs,
       });
-      if (options.currentHash) {
-        params.set('currentHash', options.currentHash);
+
+      if (!stageResult.success) {
+        throw new Error(stageResult.error || 'Failed to stage bundle');
       }
 
-      const res = await fetchFn(`${options.serverUrl}/api/v1/updates/check?${params.toString()}`);
-      if (!res.ok) {
-        throw new Error(`Server returned HTTP ${res.status}`);
+      updateState({
+        status: 'ready',
+        isDownloading: false,
+        progress: 100,
+      });
+
+      options.onUpdateStaged?.(manifestToDownload);
+
+      if (options.autoApply === 'immediate') {
+        await applyUpdate();
       }
 
-      const data = (await res.json()) as CheckUpdateResponse;
+      return true;
+    } catch (err) {
+      const errorObj = err instanceof Error ? err : new Error(String(err));
+      updateState({
+        status: 'error',
+        isDownloading: false,
+        error: errorObj,
+      });
+      options.onError?.(errorObj);
+      return false;
+    }
+  };
+
+  const check = async (): Promise<ReleaseManifest | null> => {
+    updateState({ status: 'checking', isChecking: true, error: null });
+    try {
+      const data = await checkUpdate(
+        options.serverUrl,
+        {
+          appId: options.appId,
+          platform,
+          runtimeVersion: options.runtimeVersion,
+          channel: options.channel || 'production',
+          currentHash: options.currentHash,
+        },
+        fetchFn
+      );
+
       if (data.updateAvailable && data.manifest) {
         updateState({
+          status: 'idle',
           isChecking: false,
           updateAvailable: true,
           manifest: data.manifest,
         });
+        options.onUpdateAvailable?.(data.manifest);
+
+        if (options.autoApply === 'next-restart' || options.autoApply === 'immediate') {
+          void downloadAndStage(data.manifest);
+        }
+
         return data.manifest;
       }
 
       updateState({
+        status: 'idle',
         isChecking: false,
         updateAvailable: false,
         manifest: null,
@@ -85,10 +195,12 @@ export function createOTAController(
     } catch (err) {
       const errorObj = err instanceof Error ? err : new Error(String(err));
       updateState({
+        status: 'error',
         isChecking: false,
         updateAvailable: false,
         error: errorObj,
       });
+      options.onError?.(errorObj);
       return null;
     }
   };
@@ -102,6 +214,9 @@ export function createOTAController(
       };
     },
     check,
+    checkForUpdate: check,
+    downloadAndStage,
+    applyUpdate,
   };
 }
 
@@ -125,8 +240,19 @@ export function useOTA(options: UseOTAOptions) {
     return await controllerRef.current!.check();
   }, []);
 
+  const downloadAndStage = useCallback(async (manifest?: ReleaseManifest) => {
+    return await controllerRef.current!.downloadAndStage(manifest);
+  }, []);
+
+  const applyUpdate = useCallback(async () => {
+    return await controllerRef.current!.applyUpdate();
+  }, []);
+
   return {
     ...state,
     check,
+    checkForUpdate: check,
+    downloadAndStage,
+    applyUpdate,
   };
 }

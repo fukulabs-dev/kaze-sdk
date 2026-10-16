@@ -40,4 +40,8 @@ import Foundation
 
         return bundleURL
     }
+
+    @objc public static func getJSBundleFile() -> URL? {
+        return bundleURL()
+    }
 }

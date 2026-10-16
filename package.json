@@ -4,8 +4,28 @@
   "description": "Kaze: React Native Client SDK for Over-The-Air updates by fukulabs.dev",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./plugin": {
+      "types": "./plugin/dist/index.d.ts",
+      "import": "./plugin/dist/index.js",
+      "default": "./plugin/dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "android",
+    "ios",
+    "plugin/dist",
+    "README.md",
+    "fukulabs-kaze.podspec"
+  ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && tsc -p plugin",
     "test": "vitest run"
   },
   "dependencies": {

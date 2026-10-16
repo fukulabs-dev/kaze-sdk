@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { BootGuard } from '../src/guard';
+import { BootGuard, attachGlobalErrorHandler, initBootGuard, type ErrorUtilsLike } from '../src/guard';
 
 describe('BootGuard Rollback Safeguard', () => {
   let mockStorage: Record<string, string>;
@@ -33,5 +33,47 @@ describe('BootGuard Rollback Safeguard', () => {
     guard.recordCrash('bad_hash', 'ReferenceError: invalid JS');
 
     expect(guard.isBundleBlacklisted('bad_hash')).toBe(true);
+  });
+  it('intercepts fatal error via ErrorUtils handler and blacklists active testing bundle', () => {
+    let currentHandler: ((error: Error, isFatal?: boolean) => void) | undefined;
+    const mockErrorUtils: ErrorUtilsLike = {
+      getGlobalHandler: () => currentHandler,
+      setGlobalHandler: (h) => {
+        currentHandler = h;
+      },
+    };
+
+    const guard = initBootGuard({
+      storage: storageAdapter,
+      activeHash: 'failing_bundle_hash',
+      errorUtils: mockErrorUtils,
+    });
+
+    expect(guard.isBundleTesting('failing_bundle_hash')).toBe(true);
+    expect(currentHandler).toBeDefined();
+
+    // Simulate fatal error
+    currentHandler!(new Error('ReferenceError: crash in component mount'), true);
+
+    expect(guard.isBundleBlacklisted('failing_bundle_hash')).toBe(true);
+    expect(guard.isBundleTesting('failing_bundle_hash')).toBe(false);
+  });
+
+  it('unsubscribes and restores original handler when cleanup callback is called', () => {
+    const originalHandler = vi.fn();
+    let installedHandler: ((error: Error, isFatal?: boolean) => void) | undefined = originalHandler;
+    const mockErrorUtils: ErrorUtilsLike = {
+      getGlobalHandler: () => installedHandler,
+      setGlobalHandler: (h) => {
+        installedHandler = h;
+      },
+    };
+
+    const guard = new BootGuard({ storage: storageAdapter });
+    const detach = attachGlobalErrorHandler(guard, mockErrorUtils);
+    expect(installedHandler).not.toBe(originalHandler);
+
+    detach?.();
+    expect(installedHandler).toBe(originalHandler);
   });
 });

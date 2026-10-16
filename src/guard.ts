@@ -40,6 +40,10 @@ export class BootGuard {
     return this.options.storage.get(`ota_stable_${hash}`) === 'true';
   }
 
+  getTestingBundle(): string | null {
+    return this.options.storage.get('ota_testing_bundle');
+  }
+
   isBundleTesting(hash: string): boolean {
     return this.options.storage.get('ota_testing_bundle') === hash;
   }
@@ -47,4 +51,60 @@ export class BootGuard {
   isBundleBlacklisted(hash: string): boolean {
     return this.options.storage.get(`ota_blacklisted_${hash}`) === 'true';
   }
+}
+
+export interface ErrorUtilsLike {
+  getGlobalHandler?: () => ((error: Error, isFatal?: boolean) => void) | undefined;
+  setGlobalHandler?: (handler: (error: Error, isFatal?: boolean) => void) => void;
+}
+
+export function attachGlobalErrorHandler(guard: BootGuard, errorUtils?: ErrorUtilsLike): (() => void) | null {
+  let target: ErrorUtilsLike | undefined = errorUtils;
+  if (!target && typeof globalThis !== 'undefined' && 'ErrorUtils' in globalThis) {
+    const candidate = (globalThis as Record<string, unknown>).ErrorUtils;
+    if (candidate && typeof candidate === 'object') {
+      target = candidate as ErrorUtilsLike;
+    }
+  }
+
+  if (!target || typeof target.setGlobalHandler !== 'function') {
+    return null;
+  }
+
+  const prevHandler = typeof target.getGlobalHandler === 'function' ? target.getGlobalHandler() : undefined;
+
+  const crashHandler = (error: Error, isFatal?: boolean) => {
+    const testingBundle = guard.getTestingBundle();
+    if (testingBundle) {
+      guard.recordCrash(testingBundle, error?.message || 'Fatal boot crash');
+    }
+    if (prevHandler) {
+      prevHandler(error, isFatal);
+    }
+  };
+
+  target.setGlobalHandler(crashHandler);
+
+  return () => {
+    if (prevHandler && typeof target?.setGlobalHandler === 'function') {
+      target.setGlobalHandler(prevHandler);
+    }
+  };
+}
+
+export interface InitBootGuardOptions extends BootGuardOptions {
+  activeHash?: string;
+  attachHandler?: boolean;
+  errorUtils?: ErrorUtilsLike;
+}
+
+export function initBootGuard(options: InitBootGuardOptions): BootGuard {
+  const guard = new BootGuard(options);
+  if (options.attachHandler !== false) {
+    attachGlobalErrorHandler(guard, options.errorUtils);
+  }
+  if (options.activeHash) {
+    guard.onBundleBoot(options.activeHash);
+  }
+  return guard;
 }

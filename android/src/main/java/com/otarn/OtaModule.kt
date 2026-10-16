@@ -1,19 +1,27 @@
 package com.otarn
 
 import android.content.Context
-import java.io.File
+import com.facebook.react.bridge.ReactApplicationContext
+import com.facebook.react.bridge.ReactContextBaseJavaModule
+import com.facebook.react.bridge.ReactMethod
+import com.facebook.react.bridge.Promise
 
-class OtaModule(private val context: Context) {
-    fun getCurrentBundlePath(): String? {
-        return OtaBundleLoader.getJSBundleFile(context)
+class OtaModule(private val reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
+    override fun getName(): String = "OtaModule"
+
+    @ReactMethod
+    fun getCurrentBundlePath(promise: Promise) {
+        val path = OtaBundleLoader.getJSBundleFile(reactContext)
+        promise.resolve(path)
     }
 
+    @ReactMethod
     fun restartApp() {
-        val packageManager = context.packageManager
-        val intent = packageManager.getLaunchIntentForPackage(context.packageName)
+        val packageManager = reactContext.packageManager
+        val intent = packageManager.getLaunchIntentForPackage(reactContext.packageName)
         val componentName = intent?.component
         val restartIntent = android.content.Intent.makeRestartActivityTask(componentName)
-        context.startActivity(restartIntent)
+        reactContext.startActivity(restartIntent)
         Runtime.getRuntime().exit(0)
     }
 }

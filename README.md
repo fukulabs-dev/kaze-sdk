@@ -97,18 +97,33 @@ import { View, Text } from 'react-native';
 import { useOTA } from '@fukulabs/kaze';
 
 export default function App() {
-  const { status, progress, updateAvailable, checkForUpdate } = useOTA({
+  const {
+    status,
+    progress,
+    updateAvailable,
+    manifest,
+    error,
+    checkForUpdate,
+    applyUpdate,
+  } = useOTA({
     appId: 'my-app',
     serverUrl: 'https://kaze.yourcompany.com',
     runtimeVersion: '1.0.0',
     channel: 'production',
     autoApply: 'next-restart', // Background download, activates on next cold launch
+    onUpdateAvailable: (manifest) => console.log('Update found:', manifest.id),
+    onDownloadProgress: (progress) => console.log(`Downloaded ${progress}%`),
+    onUpdateStaged: () => console.log('Bundle staged and ready'),
+    onError: (err) => console.error('OTA error:', err),
   });
 
   return (
     <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
       <Text>Application Status: {status}</Text>
-      {updateAvailable && <Text>Downloading update: {progress}%</Text>}
+      {status === 'downloading' && <Text>Downloading update: {progress}%</Text>}
+      {status === 'ready' && (
+        <Text onPress={applyUpdate}>Update ready! Tap to restart now.</Text>
+      )}
     </View>
   );
 }
@@ -122,9 +137,45 @@ export default function App() {
 | `serverUrl` | `string` | **Yes** | - | Base URL of your self-hosted Kaze server. |
 | `runtimeVersion` | `string` | **Yes** | - | Native binary version string (e.g. `1.0.0`). |
 | `channel` | `string` | No | `'production'` | Target distribution channel (e.g. `staging`, `production`). |
+| `platform` | `'android' \| 'ios'` | No | Auto-detected | Mobile target platform (`Platform.OS` fallback). |
 | `autoApply` | `'next-restart' \| 'immediate'` | No | `'next-restart'` | When to apply the downloaded bundle. |
-| `autoCheck` | `boolean` | No | `true` | Automatically checks on mount. |
+| `autoCheck` | `boolean` | No | `true` | Automatically checks for updates on mount. |
+| `onUpdateAvailable` | `(manifest) => void` | No | - | Callback invoked when a new bundle release is discovered. |
+| `onDownloadProgress` | `(progress) => void` | No | - | Invoked with download progress percentage (0-100). |
+| `onUpdateStaged` | `(manifest) => void` | No | - | Callback invoked when bundle is extracted and staged. |
+| `onError` | `(error) => void` | No | - | Callback invoked on network, checksum, or staging failure. |
 
+### Return Values
+
+| Property | Type | Description |
+|---|---|---|
+| `status` | `'idle' \| 'checking' \| 'downloading' \| 'ready' \| 'error'` | Current update state machine status. |
+| `progress` | `number` | Download progress percentage (0 to 100). |
+| `updateAvailable` | `boolean` | Whether an update is available on the distribution server. |
+| `manifest` | `ReleaseManifest \| null` | Server release metadata for the available update. |
+| `error` | `Error \| null` | Error object if check, download, or verification failed. |
+| `checkForUpdate` | `() => Promise<ReleaseManifest \| null>` | Trigger manual update check. |
+| `applyUpdate` | `() => Promise<void>` | Apply staged bundle immediately by restarting the app. |
+| `downloadAndStage` | `(manifest?) => Promise<boolean>` | Manually download and stage bundle package. |
+
+---
+
+## 5-Second Boot Crash Guard
+
+Initialize `initBootGuard` at your app entrypoint (e.g. `index.js`) to protect against faulty bundle releases:
+
+```typescript
+import { initBootGuard, MemoryStorage } from '@fukulabs/kaze';
+
+// Monitors startup for 5s; blacklists hash and reverts if app crashes
+initBootGuard({
+  storage: new MemoryStorage(), // or AsyncStorage / MMKV adapter
+  stabilityTimeoutMs: 5000,
+  onCrashRollback: (badHash, reason) => {
+    console.warn(`Rolled back bad bundle ${badHash}: ${reason}`);
+  },
+});
+```
 ---
 
 ## Security & Verification

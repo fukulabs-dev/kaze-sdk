@@ -1,5 +1,86 @@
 import { describe, it, expect } from 'vitest';
-import { stageBundle, MemoryFileSystemAdapter } from '../src/staging';
+import { stageBundle, unzipBundle, MemoryFileSystemAdapter } from '../src/staging';
+import zlib from 'node:zlib';
+
+function createTestZip(files: Record<string, string>): Uint8Array {
+  interface ZipEntry {
+    name: string;
+    nameBuf: Buffer;
+    dataBuf: Buffer;
+    compBuf: Buffer;
+    lfh: Buffer;
+    offset: number;
+  }
+  const fileEntries: ZipEntry[] = [];
+  let offset = 0;
+
+  for (const [name, content] of Object.entries(files)) {
+    const nameBuf = Buffer.from(name);
+    const dataBuf = Buffer.from(content);
+    const compBuf = zlib.deflateRawSync(dataBuf);
+
+    const lfh = Buffer.alloc(30 + nameBuf.length);
+    lfh.writeUInt32LE(0x04034b50, 0);
+    lfh.writeUInt16LE(20, 4);
+    lfh.writeUInt16LE(0, 6);
+    lfh.writeUInt16LE(8, 8);
+    lfh.writeUInt16LE(0, 10);
+    lfh.writeUInt16LE(0, 12);
+    lfh.writeUInt32LE(0, 14);
+    lfh.writeUInt32LE(compBuf.length, 18);
+    lfh.writeUInt32LE(dataBuf.length, 22);
+    lfh.writeUInt16LE(nameBuf.length, 26);
+    lfh.writeUInt16LE(0, 28);
+    nameBuf.copy(lfh, 30);
+
+    fileEntries.push({ name, nameBuf, dataBuf, compBuf, lfh, offset });
+    offset += lfh.length + compBuf.length;
+  }
+
+  const cdStart = offset;
+  const cdBuffers: Buffer[] = [];
+  for (const entry of fileEntries) {
+    const cdh = Buffer.alloc(46 + entry.nameBuf.length);
+    cdh.writeUInt32LE(0x02014b50, 0);
+    cdh.writeUInt16LE(20, 4);
+    cdh.writeUInt16LE(20, 6);
+    cdh.writeUInt16LE(0, 8);
+    cdh.writeUInt16LE(8, 10);
+    cdh.writeUInt16LE(0, 12);
+    cdh.writeUInt16LE(0, 14);
+    cdh.writeUInt32LE(0, 16);
+    cdh.writeUInt32LE(entry.compBuf.length, 20);
+    cdh.writeUInt32LE(entry.dataBuf.length, 24);
+    cdh.writeUInt16LE(entry.nameBuf.length, 28);
+    cdh.writeUInt16LE(0, 30);
+    cdh.writeUInt16LE(0, 32);
+    cdh.writeUInt16LE(0, 34);
+    cdh.writeUInt16LE(0, 36);
+    cdh.writeUInt32LE(0, 38);
+    cdh.writeUInt32LE(entry.offset, 42);
+    entry.nameBuf.copy(cdh, 46);
+    cdBuffers.push(cdh);
+    offset += cdh.length;
+  }
+
+  const cdSize = offset - cdStart;
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0);
+  eocd.writeUInt16LE(0, 4);
+  eocd.writeUInt16LE(0, 6);
+  eocd.writeUInt16LE(fileEntries.length, 8);
+  eocd.writeUInt16LE(fileEntries.length, 10);
+  eocd.writeUInt32LE(cdSize, 12);
+  eocd.writeUInt32LE(cdStart, 16);
+  eocd.writeUInt16LE(0, 20);
+
+  const parts: Buffer[] = [];
+  for (const e of fileEntries) {
+    parts.push(e.lfh, e.compBuf);
+  }
+  parts.push(...cdBuffers, eocd);
+  return new Uint8Array(Buffer.concat(parts));
+}
 
 describe('Bundle Staging & Native File Bridge', () => {
   it('stages an Android bundle to the ota/current slot with bundle.hash', async () => {
@@ -48,5 +129,47 @@ describe('Bundle Staging & Native File Bridge', () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('Missing entrypoint');
+  });
+  it('rejects bundle with path traversal entry names', async () => {
+    const fs = new MemoryFileSystemAdapter();
+    const result = await stageBundle({
+      platform: 'android',
+      bundleHash: 'hash_abc',
+      files: {
+        'index.android.bundle': 'console.log("ok");',
+        '../../etc/passwd': 'evil',
+      },
+      fileSystem: fs,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('path traversal');
+  });
+
+  it('unzips a valid zip archive into entry files', async () => {
+    const zipBytes = createTestZip({
+      'index.android.bundle': 'console.log("unzipped v1");',
+      'assets/logo.png': 'png-data',
+    });
+
+    const extracted = await unzipBundle(zipBytes, 'android');
+    expect(extracted['index.android.bundle']).toBeDefined();
+    const text = new TextDecoder().decode(extracted['index.android.bundle'] as Uint8Array);
+    expect(text).toBe('console.log("unzipped v1");');
+  });
+
+  it('rejects zip archive containing directory traversal paths', async () => {
+    const zipBytes = createTestZip({
+      'index.android.bundle': 'console.log("fine");',
+      '../dangerous.txt': 'payload',
+    });
+
+    await expect(unzipBundle(zipBytes, 'android')).rejects.toThrow('path traversal');
+  });
+
+  it('falls back to raw bundle entrypoint if bytes do not contain PK signature', async () => {
+    const rawBytes = new TextEncoder().encode('console.log("raw js");');
+    const extracted = await unzipBundle(rawBytes, 'ios');
+    expect(extracted['main.jsbundle']).toEqual(rawBytes);
   });
 });

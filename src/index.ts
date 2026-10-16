@@ -5,6 +5,7 @@ export * from './useOTA';
 export * from './sha256';
 export * from './staging';
 export * from './types';
+export * from './native';
 
 export interface OTAOptions {
   serverUrl: string;
