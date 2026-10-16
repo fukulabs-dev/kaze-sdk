@@ -3,13 +3,13 @@
   "version": "0.1.0",
   "description": "Kaze: React Native Client SDK for Over-The-Air updates by fukulabs.dev",
   "license": "MIT",
-  "homepage": "https://github.com/fukulabs/kaze-react-native#readme",
+  "homepage": "https://github.com/fukulabs/kaze-sdk#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/fukulabs/kaze-react-native.git"
+    "url": "https://github.com/fukulabs/kaze-sdk.git"
   },
   "bugs": {
-    "url": "https://github.com/fukulabs/kaze-react-native/issues"
+    "url": "https://github.com/fukulabs/kaze-sdk/issues"
   },
   "keywords": [
     "react-native",
