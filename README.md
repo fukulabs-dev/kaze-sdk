@@ -140,6 +140,10 @@ export default function App() {
 | `platform` | `'android' \| 'ios'` | No | Auto-detected | Mobile target platform (`Platform.OS` fallback). |
 | `autoApply` | `'next-restart' \| 'immediate'` | No | `'next-restart'` | When to apply the downloaded bundle. |
 | `autoCheck` | `boolean` | No | `true` | Automatically checks for updates on mount. |
+| `checkOnResume` | `boolean` | No | `false` | Automatically checks for updates when app returns from background to foreground. |
+| `reportStatus` | `boolean` | No | `true` | Automatically reports staging and failure telemetry to the Kaze server. |
+| `clientUuid` | `string` | No | - | Optional persistent client UUID for targeted rollout tracking. |
+| `fileSystem` | `FileSystemAdapter` | No | `NativeFileSystemAdapter` | Pluggable filesystem adapter (defaults to zero-dependency native disk staging). |
 | `onUpdateAvailable` | `(manifest) => void` | No | - | Callback invoked when a new bundle release is discovered. |
 | `onDownloadProgress` | `(progress) => void` | No | - | Invoked with download progress percentage (0-100). |
 | `onUpdateStaged` | `(manifest) => void` | No | - | Callback invoked when bundle is extracted and staged. |
@@ -165,11 +169,11 @@ export default function App() {
 Initialize `initBootGuard` at your app entrypoint (e.g. `index.js`) to protect against faulty bundle releases:
 
 ```typescript
-import { initBootGuard, MemoryStorage } from '@fukulabs/kaze';
+import { initBootGuard } from '@fukulabs/kaze';
 
-// Monitors startup for 5s; blacklists hash and reverts if app crashes
+// Monitors startup for 5s; blacklists hash and reverts if app crashes.
+// Uses zero-dependency native persistent storage by default.
 initBootGuard({
-  storage: new MemoryStorage(), // or AsyncStorage / MMKV adapter
   stabilityTimeoutMs: 5000,
   onCrashRollback: (badHash, reason) => {
     console.warn(`Rolled back bad bundle ${badHash}: ${reason}`);

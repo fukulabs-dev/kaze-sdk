@@ -22,6 +22,12 @@ export async function checkUpdate(
   if (request.currentHash) {
     params.set('currentHash', request.currentHash);
   }
+  if (request.deviceId) {
+    params.set('deviceId', request.deviceId);
+  }
+  if (request.clientUuid) {
+    params.set('clientUuid', request.clientUuid);
+  }
 
   const res = await fetchFn(`${serverUrl}/api/v1/updates/check?${params.toString()}`);
   if (!res.ok) {

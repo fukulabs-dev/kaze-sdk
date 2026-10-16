@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { ReleaseManifest } from './types';
-import { checkUpdate, downloadBundle, verifyBundleChecksum } from './updater';
+import { checkUpdate, downloadBundle, verifyBundleChecksum, reportUpdateStatus } from './updater';
 import {
   stageBundle,
   unzipBundle,
@@ -35,8 +35,12 @@ export interface UseOTAOptions {
   runtimeVersion: string;
   channel?: string;
   currentHash?: string;
+  deviceId?: string;
+  clientUuid?: string;
   autoCheck?: boolean;
+  checkOnResume?: boolean;
   autoApply?: 'next-restart' | 'immediate';
+  reportStatus?: boolean;
   fileSystem?: FileSystemAdapter;
   onUpdateAvailable?: (manifest: ReleaseManifest) => void;
   onDownloadProgress?: (progress: number) => void;
@@ -143,6 +147,23 @@ export function createOTAController(
 
       options.onUpdateStaged?.(manifestToDownload);
 
+      if (options.reportStatus !== false) {
+        reportUpdateStatus(
+          options.serverUrl,
+          {
+            appId: options.appId,
+            releaseId: manifestToDownload.id,
+            status: 'staged',
+            platform,
+            runtimeVersion: options.runtimeVersion,
+            bundleHash: manifestToDownload.bundleHash,
+            deviceId: options.deviceId,
+            clientUuid: options.clientUuid,
+          },
+          fetchFn
+        ).catch(() => {});
+      }
+
       if (options.autoApply === 'immediate') {
         await applyUpdate();
       }
@@ -156,6 +177,24 @@ export function createOTAController(
         error: errorObj,
       });
       options.onError?.(errorObj);
+      if (options.reportStatus !== false && manifestToDownload) {
+        reportUpdateStatus(
+          options.serverUrl,
+          {
+            appId: options.appId,
+            releaseId: manifestToDownload.id,
+            status: 'failed',
+            platform,
+            runtimeVersion: options.runtimeVersion,
+            bundleHash: manifestToDownload.bundleHash,
+            reason: errorObj.message,
+            error: errorObj.message,
+            deviceId: options.deviceId,
+            clientUuid: options.clientUuid,
+          },
+          fetchFn
+        ).catch(() => {});
+      }
       return false;
     }
   };
@@ -171,6 +210,8 @@ export function createOTAController(
           runtimeVersion: options.runtimeVersion,
           channel: options.channel || 'production',
           currentHash: options.currentHash,
+          deviceId: options.deviceId,
+          clientUuid: options.clientUuid,
         },
         fetchFn
       );
@@ -241,6 +282,25 @@ export function useOTA(options: UseOTAOptions) {
     }
     return unsubscribe;
   }, [options.autoCheck]);
+
+  useEffect(() => {
+    if (!options.checkOnResume) return;
+    try {
+      const rn = require('react-native');
+      if (rn && rn.AppState && typeof rn.AppState.addEventListener === 'function') {
+        const sub = rn.AppState.addEventListener('change', (nextState: string) => {
+          if (nextState === 'active') {
+            void controllerRef.current?.check();
+          }
+        });
+        return () => {
+          sub?.remove?.();
+        };
+      }
+    } catch {
+      // Non-React Native environment
+    }
+  }, [options.checkOnResume]);
 
   const check = useCallback(async () => {
     return await controllerRef.current!.check();

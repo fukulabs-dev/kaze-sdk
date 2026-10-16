@@ -180,4 +180,183 @@ describe('useOTA & OTAController State Machine', () => {
     expect(controller.getState().error?.message).toContain('Checksum mismatch');
     expect(onError).toHaveBeenCalled();
   });
+
+  it('automatically reports status staged upon successful staging', async () => {
+    const bundleContent = 'console.log("report test bundle");';
+    const bundleBytes = new TextEncoder().encode(bundleContent);
+    const bundleHash = computeSha256(bundleBytes);
+
+    const mockManifest = {
+      id: 'rel_telemetry_1',
+      appId: 'test-app',
+      platform: 'android' as const,
+      runtimeVersion: '1.0.0',
+      channel: 'production',
+      bundleHash,
+      bundleUrl: 'https://ota.example.com/bundles/rel_telemetry.zip',
+      bundleSize: bundleBytes.length,
+      isMandatory: false,
+      createdAt: new Date().toISOString(),
+    };
+
+    interface CapturedReport {
+      url: string;
+      body: Record<string, unknown>;
+    }
+    const reportCalls: CapturedReport[] = [];
+    const fetchMock = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url.includes('/api/v1/updates/check')) {
+        return {
+          ok: true,
+          json: async () => ({ updateAvailable: true, manifest: mockManifest }),
+        };
+      }
+      if (url.includes('/bundles/rel_telemetry.zip')) {
+        return {
+          ok: true,
+          headers: { get: () => String(bundleBytes.length) },
+          arrayBuffer: async () => bundleBytes.buffer,
+        };
+      }
+      if (url.includes('/api/v1/updates/report')) {
+        reportCalls.push({ url, body: JSON.parse(String(init?.body)) as Record<string, unknown> });
+        return {
+          ok: true,
+          json: async () => ({ success: true }),
+        };
+      }
+      return { ok: false, status: 404 };
+    });
+
+    const controller = createOTAController(
+      {
+        serverUrl: 'https://ota.example.com',
+        appId: 'test-app',
+        platform: 'android',
+        runtimeVersion: '1.0.0',
+        clientUuid: 'device-uuid-1234',
+        reportStatus: true,
+      },
+      fetchMock as unknown as typeof fetch,
+      new MemoryFileSystemAdapter()
+    );
+
+    const success = await controller.downloadAndStage(mockManifest);
+    expect(success).toBe(true);
+    expect(reportCalls.length).toBe(1);
+    expect(reportCalls[0].body).toEqual({
+      appId: 'test-app',
+      releaseId: 'rel_telemetry_1',
+      status: 'staged',
+      platform: 'android',
+      runtimeVersion: '1.0.0',
+      bundleHash,
+      clientUuid: 'device-uuid-1234',
+    });
+  });
+
+  it('automatically reports status failed upon download/verification error', async () => {
+    const corruptedBytes = new TextEncoder().encode('corrupted bytes');
+    const mockManifest = {
+      id: 'rel_telemetry_fail',
+      appId: 'test-app',
+      platform: 'android' as const,
+      runtimeVersion: '1.0.0',
+      channel: 'production',
+      bundleHash: 'expected_correct_hash_99999999999999999999999999999999999999999999',
+      bundleUrl: 'https://ota.example.com/bundles/fail.zip',
+      bundleSize: corruptedBytes.length,
+      isMandatory: false,
+      createdAt: new Date().toISOString(),
+    };
+
+    interface CapturedReport {
+      url: string;
+      body: Record<string, unknown>;
+    }
+    const reportCalls: CapturedReport[] = [];
+    const fetchMock = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url.includes('/bundles/fail.zip')) {
+        return {
+          ok: true,
+          headers: { get: () => String(corruptedBytes.length) },
+          arrayBuffer: async () => corruptedBytes.buffer,
+        };
+      }
+      if (url.includes('/api/v1/updates/report')) {
+        reportCalls.push({ url, body: JSON.parse(String(init?.body)) as Record<string, unknown> });
+        return {
+          ok: true,
+          json: async () => ({ success: true }),
+        };
+      }
+      return { ok: false, status: 404 };
+    });
+
+    const controller = createOTAController(
+      {
+        serverUrl: 'https://ota.example.com',
+        appId: 'test-app',
+        platform: 'android',
+        runtimeVersion: '1.0.0',
+        reportStatus: true,
+      },
+      fetchMock as unknown as typeof fetch
+    );
+
+    await controller.downloadAndStage(mockManifest);
+    expect(reportCalls.length).toBe(1);
+    expect(reportCalls[0].body.status).toBe('failed');
+    expect(reportCalls[0].body.reason).toContain('Checksum mismatch');
+  });
+
+  it('does not report status when reportStatus is set to false', async () => {
+    const bundleContent = 'console.log("no report bundle");';
+    const bundleBytes = new TextEncoder().encode(bundleContent);
+    const bundleHash = computeSha256(bundleBytes);
+
+    const mockManifest = {
+      id: 'rel_no_report',
+      appId: 'test-app',
+      platform: 'android' as const,
+      runtimeVersion: '1.0.0',
+      channel: 'production',
+      bundleHash,
+      bundleUrl: 'https://ota.example.com/bundles/no_report.zip',
+      bundleSize: bundleBytes.length,
+      isMandatory: false,
+      createdAt: new Date().toISOString(),
+    };
+
+    const reportCalls: Array<{ url: string }> = [];
+    const fetchMock = vi.fn().mockImplementation(async (url: string) => {
+      if (url.includes('/bundles/no_report.zip')) {
+        return {
+          ok: true,
+          headers: { get: () => String(bundleBytes.length) },
+          arrayBuffer: async () => bundleBytes.buffer,
+        };
+      }
+      if (url.includes('/api/v1/updates/report')) {
+        reportCalls.push({ url });
+        return { ok: true, json: async () => ({ success: true }) };
+      }
+      return { ok: false, status: 404 };
+    });
+
+    const controller = createOTAController(
+      {
+        serverUrl: 'https://ota.example.com',
+        appId: 'test-app',
+        platform: 'android',
+        runtimeVersion: '1.0.0',
+        reportStatus: false,
+      },
+      fetchMock as unknown as typeof fetch,
+      new MemoryFileSystemAdapter()
+    );
+
+    await controller.downloadAndStage(mockManifest);
+    expect(reportCalls.length).toBe(0);
+  });
 });

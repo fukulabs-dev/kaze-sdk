@@ -224,8 +224,13 @@ describe('Live End-to-End OTA Integration', () => {
       status: 'installed',
     });
     expect(reportRes.success).toBe(true);
-    expect(receivedReports).toHaveLength(1);
+    expect(receivedReports).toHaveLength(2);
     expect(receivedReports[0]).toMatchObject({
+      appId: 'showcase',
+      releaseId: 'rel_live_test_101',
+      status: 'staged',
+    });
+    expect(receivedReports[1]).toMatchObject({
       appId: 'showcase',
       releaseId: 'rel_live_test_101',
       status: 'installed',
