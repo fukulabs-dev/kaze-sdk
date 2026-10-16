@@ -29,6 +29,14 @@ export function modifyMainApplication(contents: string): string {
       'override fun getJSBundleFile(): String? {',
       'override fun getJSBundleFile(): String? {\n        OtaBundleLoader.getJSBundleFile(applicationContext)?.let { return it }'
     );
+  } else if (updated.includes('object : DefaultReactNativeHost(this) {')) {
+    updated = updated.replace(
+      'object : DefaultReactNativeHost(this) {',
+      `object : DefaultReactNativeHost(this) {
+          override fun getJSBundleFile(): String? {
+            return OtaBundleLoader.getJSBundleFile(applicationContext) ?: super.getJSBundleFile()
+          }`
+    );
   } else if (updated.includes('override val reactNativeHost: ReactNativeHost =')) {
     updated = updated.replace(
       'override val reactNativeHost: ReactNativeHost =',
@@ -53,7 +61,7 @@ export function modifyAppDelegate(contents: string): string {
   }
 
   let updated = contents;
-  if (!updated.includes('import OtaModule') && !updated.includes('@import OtaModule;')) {
+  if (!updated.includes('import OtaModule') && !updated.includes('@import OtaModule;') && !updated.includes('OtaModule-Swift.h')) {
     if (updated.includes('import UIKit')) {
       updated = updated.replace('import UIKit', 'import UIKit\nimport OtaModule');
     } else if (updated.includes('#import "AppDelegate.h"')) {
@@ -64,10 +72,20 @@ export function modifyAppDelegate(contents: string): string {
     }
   }
 
-  if (updated.includes('override func sourceURL(for bridge: RCTBridge!) -> URL! {')) {
+  if (updated.includes('override func bundleURL() -> URL? {')) {
+    updated = updated.replace(
+      'override func bundleURL() -> URL? {',
+      'override func bundleURL() -> URL? {\n    if let otaUrl = OtaBundleLoader.getJSBundleFile() {\n        return otaUrl\n    }'
+    );
+  } else if (updated.includes('override func sourceURL(for bridge: RCTBridge!) -> URL! {')) {
     updated = updated.replace(
       'override func sourceURL(for bridge: RCTBridge!) -> URL! {',
       'override func sourceURL(for bridge: RCTBridge!) -> URL! {\n    if let otaUrl = OtaBundleLoader.getJSBundleFile() {\n        return otaUrl\n    }'
+    );
+  } else if (updated.includes('- (NSURL *)sourceURLForBridge:(RCTBridge *)bridge\n{')) {
+    updated = updated.replace(
+      '- (NSURL *)sourceURLForBridge:(RCTBridge *)bridge\n{',
+      '- (NSURL *)sourceURLForBridge:(RCTBridge *)bridge\n{\n  NSURL *otaUrl = [OtaBundleLoader getJSBundleFile];\n  if (otaUrl) {\n    return otaUrl;\n  }'
     );
   }
 
