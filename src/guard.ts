@@ -1,3 +1,6 @@
+import { setNativeBundleBlacklisted, setNativeBundleStable } from './native';
+import { NativeStorage } from './storage';
+
 export interface KeyValueStorage {
   get(key: string): string | null;
   set(key: string, val: string): void;
@@ -26,6 +29,7 @@ export class BootGuard {
     this.timeoutId = setTimeout(() => {
       this.options.storage.set(`ota_stable_${hash}`, 'true');
       this.options.storage.remove('ota_testing_bundle');
+      setNativeBundleStable(hash);
     }, timeout);
   }
 
@@ -33,6 +37,7 @@ export class BootGuard {
     clearTimeout(this.timeoutId);
     this.options.storage.set(`ota_blacklisted_${hash}`, 'true');
     this.options.storage.remove('ota_testing_bundle');
+    setNativeBundleBlacklisted(hash);
     this.options.onCrashRollback?.(hash, reason);
   }
 
@@ -92,14 +97,18 @@ export function attachGlobalErrorHandler(guard: BootGuard, errorUtils?: ErrorUti
   };
 }
 
-export interface InitBootGuardOptions extends BootGuardOptions {
+export interface InitBootGuardOptions extends Partial<BootGuardOptions> {
   activeHash?: string;
   attachHandler?: boolean;
   errorUtils?: ErrorUtilsLike;
 }
 
-export function initBootGuard(options: InitBootGuardOptions): BootGuard {
-  const guard = new BootGuard(options);
+export function initBootGuard(options: InitBootGuardOptions = {}): BootGuard {
+  const storage = options.storage || new NativeStorage();
+  const guard = new BootGuard({
+    ...options,
+    storage,
+  });
   if (options.attachHandler !== false) {
     attachGlobalErrorHandler(guard, options.errorUtils);
   }
