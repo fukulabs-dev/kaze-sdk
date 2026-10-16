@@ -18,12 +18,21 @@
   },
   "files": [
     "dist",
+    "src",
     "android",
     "ios",
     "plugin/dist",
     "README.md",
     "fukulabs-kaze.podspec"
   ],
+  "codegenConfig": {
+    "name": "OtaModuleSpec",
+    "type": "modules",
+    "jsSrcsDir": "src",
+    "android": {
+      "javaPackageName": "com.otarn"
+    }
+  },
   "scripts": {
     "build": "tsc && tsc -p plugin",
     "test": "vitest run"

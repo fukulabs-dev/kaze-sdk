@@ -15,9 +15,14 @@ export interface NativeOtaModuleLike {
 }
 
 let testingNativeModule: NativeOtaModuleLike | null = null;
+let testingReactNativeResolver: (() => Record<string, unknown> | null) | null = null;
 
 export function setNativeOtaModuleForTesting(mod: NativeOtaModuleLike | null): void {
   testingNativeModule = mod;
+}
+
+export function setReactNativeResolverForTesting(resolver: (() => Record<string, unknown> | null) | null): void {
+  testingReactNativeResolver = resolver;
 }
 
 export function getNativeOtaModule(): NativeOtaModuleLike | null {
@@ -27,11 +32,29 @@ export function getNativeOtaModule(): NativeOtaModuleLike | null {
 
   try {
     // Platform-optional dependency: react-native is resolved at runtime in app hosts
-    const rn = require('react-native');
-    if (rn && typeof rn === 'object' && 'NativeModules' in rn) {
-      const nm = rn.NativeModules;
-      if (nm && typeof nm === 'object' && 'OtaModule' in nm) {
-        const ota = nm.OtaModule;
+    const rn = testingReactNativeResolver
+      ? testingReactNativeResolver()
+      : (require('react-native') as Record<string, unknown> | null);
+    if (rn && typeof rn === 'object') {
+      // 1. Prefer TurboModuleRegistry (React Native New Architecture)
+      try {
+        if ('TurboModuleRegistry' in rn && rn.TurboModuleRegistry && typeof rn.TurboModuleRegistry === 'object') {
+          const tmRegistry = rn.TurboModuleRegistry as { get?: (name: string) => unknown };
+          if (typeof tmRegistry.get === 'function') {
+            const tm = tmRegistry.get('OtaModule');
+            if (tm && typeof tm === 'object') {
+              return tm as NativeOtaModuleLike;
+            }
+          }
+        }
+      } catch {
+        // Fall through to NativeModules if TurboModule resolution fails
+      }
+
+      // 2. Fall back to NativeModules (Legacy Bridge & Interop Layer)
+      if ('NativeModules' in rn && rn.NativeModules && typeof rn.NativeModules === 'object') {
+        const nm = rn.NativeModules as Record<string, unknown>;
+        const ota = nm['OtaModule'];
         if (ota && typeof ota === 'object') {
           return ota as NativeOtaModuleLike;
         }

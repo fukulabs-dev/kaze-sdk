@@ -15,6 +15,7 @@ import {
   getNativeRollbackSlot,
   nativeUnzipBundleFile,
   setNativeOtaModuleForTesting,
+  setReactNativeResolverForTesting,
 } from '../src/native';
 import { NativeStorage } from '../src/storage';
 
@@ -22,8 +23,8 @@ describe('Native Module Bridge', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     setNativeOtaModuleForTesting(null);
+    setReactNativeResolverForTesting(null);
   });
-
   it('safely handles environments without react-native', async () => {
     expect(() => restartApp()).not.toThrow();
     await expect(getCurrentBundlePath()).resolves.toBeNull();
@@ -122,5 +123,56 @@ describe('Native Module Bridge', () => {
     const unzipped = await nativeUnzipBundleFile('ota/staging.zip', 'ota/slot_a');
     expect(unzipped).toBe(true);
     expect(mockOta.unzipBundleFile).toHaveBeenCalledWith('ota/staging.zip', 'ota/slot_a');
+  });
+
+  it('resolves OtaModule from TurboModuleRegistry when available', () => {
+    const mockTurboModule = {
+      getCurrentBundlePath: vi.fn().mockResolvedValue('/turbo/slot_a/bundle.js'),
+    };
+    setReactNativeResolverForTesting(() => ({
+      TurboModuleRegistry: {
+        get: vi.fn((name: string) => (name === 'OtaModule' ? mockTurboModule : null)),
+      },
+      NativeModules: {},
+    }));
+
+    const mod = getNativeOtaModule();
+    expect(mod).toBe(mockTurboModule);
+  });
+
+  it('falls back to NativeModules when TurboModuleRegistry returns null', () => {
+    const mockLegacyModule = {
+      getCurrentBundlePath: vi.fn().mockResolvedValue('/legacy/slot_a/bundle.js'),
+    };
+    setReactNativeResolverForTesting(() => ({
+      TurboModuleRegistry: {
+        get: vi.fn(() => null),
+      },
+      NativeModules: {
+        OtaModule: mockLegacyModule,
+      },
+    }));
+
+    const mod = getNativeOtaModule();
+    expect(mod).toBe(mockLegacyModule);
+  });
+
+  it('falls back to NativeModules when TurboModuleRegistry is absent or throws', () => {
+    const mockLegacyModule = {
+      getCurrentBundlePath: vi.fn().mockResolvedValue('/legacy/slot_a/bundle.js'),
+    };
+    setReactNativeResolverForTesting(() => ({
+      TurboModuleRegistry: {
+        get: vi.fn(() => {
+          throw new Error('JSI binding error');
+        }),
+      },
+      NativeModules: {
+        OtaModule: mockLegacyModule,
+      },
+    }));
+
+    const mod = getNativeOtaModule();
+    expect(mod).toBe(mockLegacyModule);
   });
 });

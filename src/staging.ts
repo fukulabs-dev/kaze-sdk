@@ -174,6 +174,27 @@ export async function stageBundle(options: StageBundleOptions): Promise<StageBun
   };
 }
 
+async function readStreamToBytes(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> {
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalLength = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) {
+      chunks.push(value);
+      totalLength += value.length;
+    }
+  }
+  const result = new Uint8Array(totalLength);
+  let pos = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, pos);
+    pos += chunk.length;
+  }
+  return result;
+}
+
 export async function unzipBundle(
   data: Uint8Array,
   platform: 'android' | 'ios'
@@ -239,8 +260,7 @@ export async function unzipBundle(
           const writer = ds.writable.getWriter();
           writer.write(compData);
           writer.close();
-          const res = new Response(ds.readable);
-          files[fileName] = new Uint8Array(await res.arrayBuffer());
+          files[fileName] = await readStreamToBytes(ds.readable);
         } else {
           files[fileName] = inflateRaw(compData);
         }
@@ -279,8 +299,7 @@ export async function unzipBundle(
           const writer = ds.writable.getWriter();
           writer.write(compData);
           writer.close();
-          const res = new Response(ds.readable);
-          files[fileName] = new Uint8Array(await res.arrayBuffer());
+          files[fileName] = await readStreamToBytes(ds.readable);
         } else {
           files[fileName] = inflateRaw(compData);
         }
