@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo/kaze-logo-dark.svg">
+    <img src="assets/logo/kaze-logo-light.svg" alt="Kaze" width="280">
+  </picture>
+</p>
+
 # @fukulabs/kaze-sdk
 
 React Native Client SDK for **Kaze (風)**, the open-source Over-The-Air update platform by [fukulabs.dev](https://fukulabs.dev).

@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 356 128" width="356" height="128" role="img" aria-label="Kaze">
+  <defs>
+    <linearGradient id="kz" x1="8" y1="120" x2="120" y2="8" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#14B8A6"/>
+      <stop offset="1" stop-color="#0284C7"/>
+    </linearGradient>
+  </defs>
+  <g fill="none" stroke="url(#kz)" stroke-width="10" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M14 46 H54 A12 12 0 1 0 42 34"/>
+    <path d="M14 72 H72 C 94 72, 106 58, 108 30"/>
+    <path d="M96 40 L108 26 L120 40"/>
+    <path d="M14 98 H62 A11 11 0 1 1 51 109"/>
+  </g>
+  <g fill="none" stroke="#0F172A" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" transform="translate(156 42)">
+    <path d="M0 0 V44"/>
+    <path d="M30 0 L4 24"/>
+    <path d="M13 16 L32 44"/>
+    <path d="M54 44 L72 0 L90 44"/>
+    <path d="M61 30 H83"/>
+    <path d="M112 0 H140 L112 44 H140"/>
+    <path d="M188 0 H162 V44 H188"/>
+    <path d="M162 22 H184"/>
+  </g>
+</svg>
