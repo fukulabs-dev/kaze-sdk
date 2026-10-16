@@ -7,6 +7,9 @@ import {
   isNativeBundleBlacklisted,
   setNativeBundleStable,
   clearNativeBlacklist,
+  nativeWriteBundleFile,
+  nativeReadBundleFile,
+  nativeBundleFileExists,
   setNativeOtaModuleForTesting,
 } from '../src/native';
 import { NativeStorage } from '../src/storage';
@@ -25,6 +28,9 @@ describe('Native Module Bridge', () => {
     await expect(isNativeBundleBlacklisted('hash_1')).resolves.toBe(false);
     expect(() => setNativeBundleStable('hash_1')).not.toThrow();
     expect(() => clearNativeBlacklist()).not.toThrow();
+    await expect(nativeWriteBundleFile('ota/test.txt', 'hello')).resolves.toBe(false);
+    await expect(nativeReadBundleFile('ota/test.txt')).resolves.toBeNull();
+    await expect(nativeBundleFileExists('ota/test.txt')).resolves.toBe(false);
   });
 
   it('NativeStorage sets and gets keys with native synchronization', () => {
@@ -52,6 +58,9 @@ describe('Native Module Bridge', () => {
       isBundleBlacklisted: vi.fn().mockResolvedValue(true),
       setBundleStable: vi.fn(),
       clearBlacklist: vi.fn(),
+      writeBundleFile: vi.fn().mockResolvedValue(true),
+      readBundleFile: vi.fn().mockResolvedValue('file-contents'),
+      bundleFileExists: vi.fn().mockResolvedValue(true),
     };
 
     setNativeOtaModuleForTesting(mockOta);
@@ -73,5 +82,17 @@ describe('Native Module Bridge', () => {
 
     clearNativeBlacklist();
     expect(mockOta.clearBlacklist).toHaveBeenCalledTimes(1);
+
+    const writeOk = await nativeWriteBundleFile('ota/test.txt', 'hello', false);
+    expect(writeOk).toBe(true);
+    expect(mockOta.writeBundleFile).toHaveBeenCalledWith('ota/test.txt', 'hello', false);
+
+    const content = await nativeReadBundleFile('ota/test.txt');
+    expect(content).toBe('file-contents');
+    expect(mockOta.readBundleFile).toHaveBeenCalledWith('ota/test.txt');
+
+    const exists = await nativeBundleFileExists('ota/test.txt');
+    expect(exists).toBe(true);
+    expect(mockOta.bundleFileExists).toHaveBeenCalledWith('ota/test.txt');
   });
 });

@@ -1,11 +1,12 @@
 package com.otarn
 
 import android.content.Context
+import android.util.Base64
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.bridge.Promise
-
+import java.io.File
 class OtaModule(private val reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
     override fun getName(): String = "OtaModule"
 
@@ -44,6 +45,59 @@ class OtaModule(private val reactContext: ReactApplicationContext) : ReactContex
             }
         }
         editor.commit()
+    }
+
+    @ReactMethod
+    fun writeBundleFile(relativePath: String, content: String, isBase64: Boolean, promise: Promise) {
+        try {
+            if (relativePath.contains("..")) {
+                promise.reject("SECURITY_ERROR", "Path traversal detected in $relativePath")
+                return
+            }
+            val targetFile = File(reactContext.filesDir, relativePath)
+            targetFile.parentFile?.mkdirs()
+            if (isBase64) {
+                val bytes = Base64.decode(content, Base64.DEFAULT)
+                targetFile.writeBytes(bytes)
+            } else {
+                targetFile.writeText(content, Charsets.UTF_8)
+            }
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.reject("FILE_WRITE_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun readBundleFile(relativePath: String, promise: Promise) {
+        try {
+            if (relativePath.contains("..")) {
+                promise.reject("SECURITY_ERROR", "Path traversal detected in $relativePath")
+                return
+            }
+            val targetFile = File(reactContext.filesDir, relativePath)
+            if (!targetFile.exists()) {
+                promise.resolve(null)
+                return
+            }
+            promise.resolve(targetFile.readText(Charsets.UTF_8))
+        } catch (e: Exception) {
+            promise.reject("FILE_READ_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun bundleFileExists(relativePath: String, promise: Promise) {
+        try {
+            if (relativePath.contains("..")) {
+                promise.reject("SECURITY_ERROR", "Path traversal detected in $relativePath")
+                return
+            }
+            val targetFile = File(reactContext.filesDir, relativePath)
+            promise.resolve(targetFile.exists())
+        } catch (e: Exception) {
+            promise.reject("FILE_EXISTS_ERROR", e.message, e)
+        }
     }
 
     @ReactMethod

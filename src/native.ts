@@ -5,6 +5,9 @@ export interface NativeOtaModuleLike {
   isBundleBlacklisted?: (hash: string) => Promise<boolean> | boolean;
   setBundleStable?: (hash: string) => void;
   clearBlacklist?: () => void;
+  writeBundleFile?: (path: string, content: string, isBase64?: boolean) => Promise<boolean> | boolean;
+  readBundleFile?: (path: string) => Promise<string | null> | string | null;
+  bundleFileExists?: (path: string) => Promise<boolean> | boolean;
 }
 
 let testingNativeModule: NativeOtaModuleLike | null = null;
@@ -78,4 +81,29 @@ export function clearNativeBlacklist(): void {
   if (mod && typeof mod.clearBlacklist === 'function') {
     mod.clearBlacklist();
   }
+}
+
+export async function nativeWriteBundleFile(path: string, content: string, isBase64 = false): Promise<boolean> {
+  const mod = getNativeOtaModule();
+  if (mod && typeof mod.writeBundleFile === 'function') {
+    const res = await mod.writeBundleFile(path, content, isBase64);
+    return res !== false;
+  }
+  return false;
+}
+
+export async function nativeReadBundleFile(path: string): Promise<string | null> {
+  const mod = getNativeOtaModule();
+  if (mod && typeof mod.readBundleFile === 'function') {
+    return await mod.readBundleFile(path);
+  }
+  return null;
+}
+
+export async function nativeBundleFileExists(path: string): Promise<boolean> {
+  const mod = getNativeOtaModule();
+  if (mod && typeof mod.bundleFileExists === 'function') {
+    return await mod.bundleFileExists(path);
+  }
+  return false;
 }

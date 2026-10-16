@@ -3,6 +3,38 @@ export interface FileSystemAdapter {
   readFile(path: string): Promise<string | null>;
   exists(path: string): Promise<boolean>;
 }
+import {
+  getNativeOtaModule,
+  nativeWriteBundleFile,
+  nativeReadBundleFile,
+  nativeBundleFileExists,
+} from './native';
+
+function uint8ArrayToBase64(bytes: Uint8Array): string {
+  if (typeof Buffer !== 'undefined') {
+    return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('base64');
+  }
+  let binary = '';
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  if (typeof btoa === 'function') {
+    return btoa(binary);
+  }
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  let base64 = '';
+  for (let i = 0; i < len; i += 3) {
+    const b0 = bytes[i];
+    const b1 = i + 1 < len ? bytes[i + 1] : 0;
+    const b2 = i + 2 < len ? bytes[i + 2] : 0;
+    base64 += chars[b0 >> 2];
+    base64 += chars[((b0 & 3) << 4) | (b1 >> 4)];
+    base64 += i + 1 < len ? chars[((b1 & 15) << 2) | (b2 >> 6)] : '=';
+    base64 += i + 2 < len ? chars[b2 & 63] : '=';
+  }
+  return base64;
+}
 
 export class MemoryFileSystemAdapter implements FileSystemAdapter {
   files: Record<string, string | Uint8Array> = {};
@@ -20,6 +52,45 @@ export class MemoryFileSystemAdapter implements FileSystemAdapter {
   async exists(path: string): Promise<boolean> {
     return this.files[path] !== undefined;
   }
+}
+
+export class NativeFileSystemAdapter implements FileSystemAdapter {
+  private fallback: FileSystemAdapter;
+
+  constructor(fallback?: FileSystemAdapter) {
+    this.fallback = fallback ?? new MemoryFileSystemAdapter();
+  }
+
+  async writeFile(path: string, content: string | Uint8Array): Promise<void> {
+    const mod = getNativeOtaModule();
+    if (mod && typeof mod.writeBundleFile === 'function') {
+      const isBase64 = content instanceof Uint8Array;
+      const payload = isBase64 ? uint8ArrayToBase64(content) : content;
+      await nativeWriteBundleFile(path, payload, isBase64);
+      return;
+    }
+    await this.fallback.writeFile(path, content);
+  }
+
+  async readFile(path: string): Promise<string | null> {
+    const mod = getNativeOtaModule();
+    if (mod && typeof mod.readBundleFile === 'function') {
+      return await nativeReadBundleFile(path);
+    }
+    return await this.fallback.readFile(path);
+  }
+
+  async exists(path: string): Promise<boolean> {
+    const mod = getNativeOtaModule();
+    if (mod && typeof mod.bundleFileExists === 'function') {
+      return await nativeBundleFileExists(path);
+    }
+    return await this.fallback.exists(path);
+  }
+}
+
+export function getDefaultFileSystemAdapter(): FileSystemAdapter {
+  return new NativeFileSystemAdapter();
 }
 
 export interface StageBundleOptions {

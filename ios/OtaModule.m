@@ -17,6 +17,20 @@ RCT_EXTERN_METHOD(clearBlacklist)
 
 RCT_EXTERN_METHOD(restartApp)
 
+RCT_EXTERN_METHOD(writeBundleFile:(NSString *)relativePath
+                  content:(NSString *)content
+                  isBase64:(BOOL)isBase64
+                  resolve:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(readBundleFile:(NSString *)relativePath
+                  resolve:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(bundleFileExists:(NSString *)relativePath
+                  resolve:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
 + (BOOL)requiresMainQueueSetup
 {
   return NO;

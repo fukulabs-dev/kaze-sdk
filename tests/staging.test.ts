@@ -1,5 +1,12 @@
-import { describe, it, expect } from 'vitest';
-import { stageBundle, unzipBundle, MemoryFileSystemAdapter } from '../src/staging';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import {
+  stageBundle,
+  unzipBundle,
+  MemoryFileSystemAdapter,
+  NativeFileSystemAdapter,
+  getDefaultFileSystemAdapter,
+} from '../src/staging';
+import { setNativeOtaModuleForTesting } from '../src/native';
 import zlib from 'node:zlib';
 
 function createTestZip(files: Record<string, string>): Uint8Array {
@@ -81,6 +88,10 @@ function createTestZip(files: Record<string, string>): Uint8Array {
   parts.push(...cdBuffers, eocd);
   return new Uint8Array(Buffer.concat(parts));
 }
+
+  beforeEach(() => {
+    setNativeOtaModuleForTesting(null);
+  });
 
 describe('Bundle Staging & Native File Bridge', () => {
   it('stages an Android bundle to the ota/current slot with bundle.hash', async () => {
@@ -171,5 +182,78 @@ describe('Bundle Staging & Native File Bridge', () => {
     const rawBytes = new TextEncoder().encode('console.log("raw js");');
     const extracted = await unzipBundle(rawBytes, 'ios');
     expect(extracted['main.jsbundle']).toEqual(rawBytes);
+  });
+
+  it('NativeFileSystemAdapter delegates writes (string and binary), reads, and exists to native bridge', async () => {
+    const mockOta = {
+      writeBundleFile: vi.fn().mockResolvedValue(true),
+      readBundleFile: vi.fn().mockResolvedValue('read-content'),
+      bundleFileExists: vi.fn().mockResolvedValue(true),
+    };
+    setNativeOtaModuleForTesting(mockOta);
+
+    const adapter = new NativeFileSystemAdapter();
+
+    await adapter.writeFile('ota/current/file.txt', 'hello world');
+    expect(mockOta.writeBundleFile).toHaveBeenCalledWith('ota/current/file.txt', 'hello world', false);
+
+    // Uint8Array bytes [72, 105] ("Hi") in base64 is "SGk="
+    const binaryBytes = new Uint8Array([72, 105]);
+    await adapter.writeFile('ota/current/file.bin', binaryBytes);
+    expect(mockOta.writeBundleFile).toHaveBeenCalledWith('ota/current/file.bin', 'SGk=', true);
+
+    const readVal = await adapter.readFile('ota/current/file.txt');
+    expect(readVal).toBe('read-content');
+    expect(mockOta.readBundleFile).toHaveBeenCalledWith('ota/current/file.txt');
+
+    const exists = await adapter.exists('ota/current/file.txt');
+    expect(exists).toBe(true);
+    expect(mockOta.bundleFileExists).toHaveBeenCalledWith('ota/current/file.txt');
+  });
+
+  it('NativeFileSystemAdapter transparently falls back to in-memory storage when no native module is installed', async () => {
+    setNativeOtaModuleForTesting(null);
+    const adapter = new NativeFileSystemAdapter();
+
+    expect(await adapter.exists('test.txt')).toBe(false);
+    await adapter.writeFile('test.txt', 'in-memory-fallback');
+    expect(await adapter.exists('test.txt')).toBe(true);
+    expect(await adapter.readFile('test.txt')).toBe('in-memory-fallback');
+  });
+
+  it('getDefaultFileSystemAdapter returns a NativeFileSystemAdapter instance', () => {
+    const adapter = getDefaultFileSystemAdapter();
+    expect(adapter).toBeInstanceOf(NativeFileSystemAdapter);
+  });
+
+  it('stageBundle works with NativeFileSystemAdapter writing bundle and hash', async () => {
+    const mockOta = {
+      writeBundleFile: vi.fn().mockResolvedValue(true),
+      readBundleFile: vi.fn().mockResolvedValue(null),
+      bundleFileExists: vi.fn().mockResolvedValue(true),
+    };
+    setNativeOtaModuleForTesting(mockOta);
+
+    const adapter = new NativeFileSystemAdapter();
+    const result = await stageBundle({
+      platform: 'android',
+      bundleHash: 'stage_hash_999',
+      files: {
+        'index.android.bundle': 'console.log("android staged bundle");',
+      },
+      fileSystem: adapter,
+    });
+
+    expect(result.success).toBe(true);
+    expect(mockOta.writeBundleFile).toHaveBeenCalledWith(
+      'ota/current/index.android.bundle',
+      'console.log("android staged bundle");',
+      false
+    );
+    expect(mockOta.writeBundleFile).toHaveBeenCalledWith(
+      'ota/current/bundle.hash',
+      'stage_hash_999',
+      false
+    );
   });
 });

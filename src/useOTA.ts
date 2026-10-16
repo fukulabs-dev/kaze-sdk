@@ -1,7 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { ReleaseManifest } from './types';
 import { checkUpdate, downloadBundle, verifyBundleChecksum } from './updater';
-import { stageBundle, unzipBundle, MemoryFileSystemAdapter, type FileSystemAdapter } from './staging';
+import {
+  stageBundle,
+  unzipBundle,
+  MemoryFileSystemAdapter,
+  getDefaultFileSystemAdapter,
+  type FileSystemAdapter,
+} from './staging';
 import { restartApp } from './native';
 
 function resolvePlatform(platform?: 'android' | 'ios'): 'android' | 'ios' {
@@ -73,7 +79,7 @@ export function createOTAController(
   };
 
   const listeners = new Set<(state: OTAState) => void>();
-  const fs = options.fileSystem || fileSystemAdapter || new MemoryFileSystemAdapter();
+  const fs = options.fileSystem || fileSystemAdapter || getDefaultFileSystemAdapter();
   const platform = resolvePlatform(options.platform);
 
   const updateState = (partial: Partial<OTAState>) => {
