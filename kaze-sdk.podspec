@@ -12,7 +12,7 @@ Pod::Spec.new do |s|
   s.license      = package["license"] || "MIT"
   s.authors      = { "fukulabs" => "hello@fukulabs.dev" }
   s.platforms    = { :ios => "13.4" }
-  s.source       = { :git => "https://github.com/fukulabs/kaze-sdk.git", :tag => "#{s.version}" }
+  s.source       = { :git => "https://github.com/fukulabs-dev/kaze-sdk.git", :tag => "v#{s.version}" }
 
   s.source_files = "ios/**/*.{h,m,mm,swift}"
   
