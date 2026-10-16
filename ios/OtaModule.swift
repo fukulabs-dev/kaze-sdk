@@ -101,6 +101,27 @@ public class OtaModule: NSObject {
         resolve(exists)
     }
 
+    @objc public func getActiveSlot(_ resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+        let active = UserDefaults.standard.string(forKey: OtaBundleLoader.activeSlotKey)
+        resolve(active)
+    }
+
+    @objc public func switchActiveSlot(_ newSlot: String, resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+        let defaults = UserDefaults.standard
+        let currentActive = defaults.string(forKey: OtaBundleLoader.activeSlotKey)
+        if let current = currentActive, current != newSlot {
+            defaults.set(current, forKey: OtaBundleLoader.rollbackSlotKey)
+        }
+        defaults.set(newSlot, forKey: OtaBundleLoader.activeSlotKey)
+        defaults.synchronize()
+        resolve(true)
+    }
+
+    @objc public func getRollbackSlot(_ resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+        let rollback = UserDefaults.standard.string(forKey: OtaBundleLoader.rollbackSlotKey)
+        resolve(rollback)
+    }
+
     @objc public func restartApp() {
         DispatchQueue.main.async {
             exit(0)

@@ -8,6 +8,9 @@ export interface NativeOtaModuleLike {
   writeBundleFile?: (path: string, content: string, isBase64?: boolean) => Promise<boolean> | boolean;
   readBundleFile?: (path: string) => Promise<string | null> | string | null;
   bundleFileExists?: (path: string) => Promise<boolean> | boolean;
+  getActiveSlot?: () => Promise<string | null> | string | null;
+  switchActiveSlot?: (newSlot: string) => Promise<boolean> | boolean;
+  getRollbackSlot?: () => Promise<string | null> | string | null;
 }
 
 let testingNativeModule: NativeOtaModuleLike | null = null;
@@ -106,4 +109,29 @@ export async function nativeBundleFileExists(path: string): Promise<boolean> {
     return await mod.bundleFileExists(path);
   }
   return false;
+}
+
+export async function getNativeActiveSlot(): Promise<string | null> {
+  const mod = getNativeOtaModule();
+  if (mod && typeof mod.getActiveSlot === 'function') {
+    return await mod.getActiveSlot();
+  }
+  return null;
+}
+
+export async function switchNativeActiveSlot(newSlot: string): Promise<boolean> {
+  const mod = getNativeOtaModule();
+  if (mod && typeof mod.switchActiveSlot === 'function') {
+    const res = await mod.switchActiveSlot(newSlot);
+    return res !== false;
+  }
+  return false;
+}
+
+export async function getNativeRollbackSlot(): Promise<string | null> {
+  const mod = getNativeOtaModule();
+  if (mod && typeof mod.getRollbackSlot === 'function') {
+    return await mod.getRollbackSlot();
+  }
+  return null;
 }

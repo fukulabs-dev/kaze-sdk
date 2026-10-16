@@ -136,7 +136,7 @@ describe('useOTA & OTAController State Machine', () => {
     expect(controller.getState().status).toBe('ready');
     expect(controller.getState().progress).toBe(100);
     expect(onStaged).toHaveBeenCalledWith(mockManifest);
-    expect(fs.files['ota/current/index.android.bundle']).toBeDefined();
+    expect(fs.files['ota/slot_a/index.android.bundle']).toBeDefined();
   });
 
   it('rejects download when SHA-256 checksum mismatches manifest', async () => {

@@ -8,6 +8,8 @@ import {
   nativeWriteBundleFile,
   nativeReadBundleFile,
   nativeBundleFileExists,
+  getNativeActiveSlot,
+  switchNativeActiveSlot,
 } from './native';
 
 function uint8ArrayToBase64(bytes: Uint8Array): string {
@@ -99,16 +101,28 @@ export interface StageBundleOptions {
   files: Record<string, string | Uint8Array>;
   fileSystem: FileSystemAdapter;
   targetDir?: string;
+  slot?: 'slot_a' | 'slot_b' | string;
 }
 
 export interface StageBundleResult {
   success: boolean;
   activePath?: string;
+  slot?: 'slot_a' | 'slot_b' | string;
   error?: string;
 }
 
 export async function stageBundle(options: StageBundleOptions): Promise<StageBundleResult> {
-  const targetDir = options.targetDir || 'ota/current';
+  let targetSlot: string | undefined = options.slot;
+  let targetDir = options.targetDir;
+
+  if (!targetDir) {
+    if (!targetSlot) {
+      const currentActive = await getNativeActiveSlot();
+      targetSlot = currentActive === 'slot_a' ? 'slot_b' : 'slot_a';
+    }
+    targetDir = `ota/${targetSlot}`;
+  }
+
   const expectedEntrypoint = options.platform === 'android' ? 'index.android.bundle' : 'main.jsbundle';
 
   // Validate against path traversal
@@ -135,9 +149,14 @@ export async function stageBundle(options: StageBundleOptions): Promise<StageBun
 
   await options.fileSystem.writeFile(`${targetDir}/bundle.hash`, options.bundleHash);
 
+  if (targetSlot) {
+    await switchNativeActiveSlot(targetSlot);
+  }
+
   return {
     success: true,
-    activePath: `${targetDir}/${expectedEntrypoint}`,
+    activePath: targetDir,
+    slot: targetSlot,
   };
 }
 

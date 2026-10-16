@@ -94,11 +94,12 @@ function createTestZip(files: Record<string, string>): Uint8Array {
   });
 
 describe('Bundle Staging & Native File Bridge', () => {
-  it('stages an Android bundle to the ota/current slot with bundle.hash', async () => {
+  it('stages an Android bundle to explicit targetDir with bundle.hash', async () => {
     const fs = new MemoryFileSystemAdapter();
     const result = await stageBundle({
       platform: 'android',
       bundleHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+      targetDir: 'ota/current',
       files: {
         'index.android.bundle': 'console.log("v2");',
         'assets/logo.png': 'png-bytes',
@@ -111,11 +112,12 @@ describe('Bundle Staging & Native File Bridge', () => {
     expect(fs.files['ota/current/bundle.hash']).toBe('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
   });
 
-  it('stages an iOS bundle with main.jsbundle entrypoint', async () => {
+  it('stages an iOS bundle with main.jsbundle entrypoint to explicit targetDir', async () => {
     const fs = new MemoryFileSystemAdapter();
     const result = await stageBundle({
       platform: 'ios',
       bundleHash: 'f0e1d2c3b4a567890123456789abcdef0123456789abcdef0123456789abcdef0',
+      targetDir: 'ota/current',
       files: {
         'main.jsbundle': 'console.log("ios v2");',
       },
@@ -238,6 +240,7 @@ describe('Bundle Staging & Native File Bridge', () => {
     const result = await stageBundle({
       platform: 'android',
       bundleHash: 'stage_hash_999',
+      targetDir: 'ota/current',
       files: {
         'index.android.bundle': 'console.log("android staged bundle");',
       },
@@ -255,5 +258,61 @@ describe('Bundle Staging & Native File Bridge', () => {
       'stage_hash_999',
       false
     );
+  });
+
+  it('alternates between slot_a and slot_b when targetDir is omitted and switches active slot', async () => {
+    let activeSlot: string | null = null;
+    const mockOta = {
+      getActiveSlot: vi.fn().mockImplementation(() => activeSlot),
+      switchActiveSlot: vi.fn().mockImplementation((newSlot: string) => {
+        activeSlot = newSlot;
+        return true;
+      }),
+    };
+    setNativeOtaModuleForTesting(mockOta);
+
+    const fs = new MemoryFileSystemAdapter();
+
+    // 1st staging: starting from null -> slot_a
+    const res1 = await stageBundle({
+      platform: 'android',
+      bundleHash: 'hash_v1',
+      files: { 'index.android.bundle': 'v1 code' },
+      fileSystem: fs,
+    });
+    expect(res1.success).toBe(true);
+    expect(res1.slot).toBe('slot_a');
+    expect(res1.activePath).toBe('ota/slot_a');
+    expect(fs.files['ota/slot_a/index.android.bundle']).toBe('v1 code');
+    expect(mockOta.switchActiveSlot).toHaveBeenCalledWith('slot_a');
+    expect(activeSlot).toBe('slot_a');
+
+    // 2nd staging: starting from slot_a -> slot_b
+    const res2 = await stageBundle({
+      platform: 'android',
+      bundleHash: 'hash_v2',
+      files: { 'index.android.bundle': 'v2 code' },
+      fileSystem: fs,
+    });
+    expect(res2.success).toBe(true);
+    expect(res2.slot).toBe('slot_b');
+    expect(res2.activePath).toBe('ota/slot_b');
+    expect(fs.files['ota/slot_b/index.android.bundle']).toBe('v2 code');
+    expect(mockOta.switchActiveSlot).toHaveBeenCalledWith('slot_b');
+    expect(activeSlot).toBe('slot_b');
+
+    // 3rd staging: starting from slot_b -> slot_a
+    const res3 = await stageBundle({
+      platform: 'android',
+      bundleHash: 'hash_v3',
+      files: { 'index.android.bundle': 'v3 code' },
+      fileSystem: fs,
+    });
+    expect(res3.success).toBe(true);
+    expect(res3.slot).toBe('slot_a');
+    expect(res3.activePath).toBe('ota/slot_a');
+    expect(fs.files['ota/slot_a/index.android.bundle']).toBe('v3 code');
+    expect(mockOta.switchActiveSlot).toHaveBeenCalledWith('slot_a');
+    expect(activeSlot).toBe('slot_a');
   });
 });

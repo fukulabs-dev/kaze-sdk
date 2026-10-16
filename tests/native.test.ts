@@ -10,6 +10,9 @@ import {
   nativeWriteBundleFile,
   nativeReadBundleFile,
   nativeBundleFileExists,
+  getNativeActiveSlot,
+  switchNativeActiveSlot,
+  getNativeRollbackSlot,
   setNativeOtaModuleForTesting,
 } from '../src/native';
 import { NativeStorage } from '../src/storage';
@@ -31,6 +34,9 @@ describe('Native Module Bridge', () => {
     await expect(nativeWriteBundleFile('ota/test.txt', 'hello')).resolves.toBe(false);
     await expect(nativeReadBundleFile('ota/test.txt')).resolves.toBeNull();
     await expect(nativeBundleFileExists('ota/test.txt')).resolves.toBe(false);
+    await expect(getNativeActiveSlot()).resolves.toBeNull();
+    await expect(switchNativeActiveSlot('slot_b')).resolves.toBe(false);
+    await expect(getNativeRollbackSlot()).resolves.toBeNull();
   });
 
   it('NativeStorage sets and gets keys with native synchronization', () => {
@@ -61,6 +67,9 @@ describe('Native Module Bridge', () => {
       writeBundleFile: vi.fn().mockResolvedValue(true),
       readBundleFile: vi.fn().mockResolvedValue('file-contents'),
       bundleFileExists: vi.fn().mockResolvedValue(true),
+      getActiveSlot: vi.fn().mockResolvedValue('slot_a'),
+      switchActiveSlot: vi.fn().mockResolvedValue(true),
+      getRollbackSlot: vi.fn().mockResolvedValue(null),
     };
 
     setNativeOtaModuleForTesting(mockOta);
@@ -94,5 +103,17 @@ describe('Native Module Bridge', () => {
     const exists = await nativeBundleFileExists('ota/test.txt');
     expect(exists).toBe(true);
     expect(mockOta.bundleFileExists).toHaveBeenCalledWith('ota/test.txt');
+
+    const activeSlot = await getNativeActiveSlot();
+    expect(activeSlot).toBe('slot_a');
+    expect(mockOta.getActiveSlot).toHaveBeenCalledTimes(1);
+
+    const switched = await switchNativeActiveSlot('slot_b');
+    expect(switched).toBe(true);
+    expect(mockOta.switchActiveSlot).toHaveBeenCalledWith('slot_b');
+
+    const rollbackSlot = await getNativeRollbackSlot();
+    expect(rollbackSlot).toBeNull();
+    expect(mockOta.getRollbackSlot).toHaveBeenCalledTimes(1);
   });
 });

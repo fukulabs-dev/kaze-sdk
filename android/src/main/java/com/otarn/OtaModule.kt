@@ -101,6 +101,30 @@ class OtaModule(private val reactContext: ReactApplicationContext) : ReactContex
     }
 
     @ReactMethod
+    fun getActiveSlot(promise: Promise) {
+        val active = prefs.getString(OtaBundleLoader.KEY_ACTIVE_SLOT, null)
+        promise.resolve(active)
+    }
+
+    @ReactMethod
+    fun switchActiveSlot(newSlot: String, promise: Promise) {
+        val currentActive = prefs.getString(OtaBundleLoader.KEY_ACTIVE_SLOT, null)
+        val editor = prefs.edit()
+        if (currentActive != null && currentActive != newSlot) {
+            editor.putString(OtaBundleLoader.KEY_ROLLBACK_SLOT, currentActive)
+        }
+        editor.putString(OtaBundleLoader.KEY_ACTIVE_SLOT, newSlot)
+        val ok = editor.commit()
+        promise.resolve(ok)
+    }
+
+    @ReactMethod
+    fun getRollbackSlot(promise: Promise) {
+        val rollback = prefs.getString(OtaBundleLoader.KEY_ROLLBACK_SLOT, null)
+        promise.resolve(rollback)
+    }
+
+    @ReactMethod
     fun restartApp() {
         val packageManager = reactContext.packageManager
         val intent = packageManager.getLaunchIntentForPackage(reactContext.packageName)

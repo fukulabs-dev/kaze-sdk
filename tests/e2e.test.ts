@@ -210,9 +210,9 @@ describe('Live End-to-End OTA Integration', () => {
     expect(stagedManifestId).toBe('rel_live_test_101');
     expect(controller.getState().status).toBe('ready');
 
-    // 4. Verify Staged Files in FileSystemAdapter
-    const stagedBundle = await fs.readFile('ota/current/index.android.bundle');
-    const stagedHash = await fs.readFile('ota/current/bundle.hash');
+    // 4. Verify Staged Files in FileSystemAdapter (Dual-Slot Slot A)
+    const stagedBundle = await fs.readFile('ota/slot_a/index.android.bundle');
+    const stagedHash = await fs.readFile('ota/slot_a/bundle.hash');
     expect(stagedBundle).toBe(bundleJsCode);
     expect(stagedHash).toBe(expectedHash);
 
