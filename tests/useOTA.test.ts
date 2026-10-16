@@ -47,14 +47,59 @@ describe('useOTA & OTAController State Machine', () => {
         appId: 'test-app',
         platform: 'android',
         runtimeVersion: '1.0.0',
+        autoApply: 'manual',
       },
       fetchMock as unknown as typeof fetch
     );
 
     const result = await controller.check();
     expect(result).toEqual(mockManifest);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(controller.getState().updateAvailable).toBe(true);
     expect(controller.getState().manifest?.id).toBe('rel_1');
+  });
+
+  it('downloads and stages by default when autoApply is not set', async () => {
+    const bundleBytes = new TextEncoder().encode('console.log("default autoApply");');
+    const mockManifest = {
+      id: 'rel_default',
+      appId: 'test-app',
+      platform: 'android' as const,
+      runtimeVersion: '1.0.0',
+      channel: 'production',
+      bundleHash: computeSha256(bundleBytes),
+      bundleUrl: 'https://ota.example.com/bundles/rel_default.js',
+      bundleSize: bundleBytes.length,
+      isMandatory: false,
+      createdAt: new Date().toISOString(),
+    };
+
+    const fetchMock = vi.fn().mockImplementation(async (url: string) => {
+      if (url.includes('/api/v1/updates/check')) {
+        return { ok: true, json: async () => ({ updateAvailable: true, manifest: mockManifest }) };
+      }
+      if (url.includes('/bundles/rel_default.js')) {
+        return { ok: true, headers: { get: () => null }, arrayBuffer: async () => bundleBytes.buffer };
+      }
+      return { ok: true, json: async () => ({ success: true }) };
+    });
+
+    const onStaged = vi.fn();
+    const controller = createOTAController(
+      {
+        serverUrl: 'https://ota.example.com',
+        appId: 'test-app',
+        platform: 'android',
+        runtimeVersion: '1.0.0',
+        fileSystem: new MemoryFileSystemAdapter(),
+        onUpdateStaged: onStaged,
+      },
+      fetchMock as unknown as typeof fetch
+    );
+
+    await controller.check();
+    await vi.waitFor(() => expect(controller.getState().status).toBe('ready'));
+    expect(onStaged).toHaveBeenCalledWith(mockManifest);
   });
 
   it('handles network failure gracefully', async () => {

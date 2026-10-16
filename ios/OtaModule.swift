@@ -8,13 +8,23 @@ public class OtaModule: NSObject {
     private let stablePrefix = "ota_stable_"
 
     @objc public func getCurrentBundlePath(_ resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
-        let path = OtaBundleLoader.bundleURL()?.path
+        let path = OtaBundleLoader.resolveBundle()?.url.path
         resolve(path)
     }
 
-    @objc public func setBundleBlacklisted(_ hash: String) {
+    // Synchronous so the write lands before the JS crash handler hands off to RN's fatal handler,
+    // which kills the process.
+    @objc public func setBundleBlacklisted(_ hash: String) -> NSNumber {
         UserDefaults.standard.set(true, forKey: "\(blacklistedPrefix)\(hash)")
-        UserDefaults.standard.synchronize()
+        return NSNumber(value: UserDefaults.standard.synchronize())
+    }
+
+    @objc public func getRunningBundleInfo() -> NSDictionary {
+        guard let hash = OtaBundleLoader.runningBundleHash else {
+            return ["hash": NSNull(), "stable": true]
+        }
+        let stable = UserDefaults.standard.bool(forKey: "\(stablePrefix)\(hash)")
+        return ["hash": hash, "stable": stable]
     }
 
     @objc public func isBundleBlacklisted(_ hash: String, resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
@@ -286,9 +296,12 @@ public class OtaModule: NSObject {
         resolve(rollback)
     }
 
+    // Reloads JS in place instead of killing the process (exit() quits the app and is flagged in
+    // App Review). Both the bridge and RCTHost re-ask the AppDelegate for the bundle URL on reload,
+    // so OtaBundleLoader picks up the newly staged slot.
     @objc public func restartApp() {
         DispatchQueue.main.async {
-            exit(0)
+            RCTTriggerReloadCommandListeners("kaze: apply staged update")
         }
     }
 

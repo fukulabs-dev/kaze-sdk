@@ -3,7 +3,9 @@ require "json"
 package = JSON.parse(File.read(File.join(__dir__, "package.json")))
 
 Pod::Spec.new do |s|
-  s.name         = "fukulabs-kaze"
+  s.name         = "kaze-sdk"
+  # Host apps import this name (`import kaze_sdk`); the Expo plugin depends on it.
+  s.module_name  = "kaze_sdk"
   s.version      = package["version"]
   s.summary      = package["description"]
   s.homepage     = "https://fukulabs.dev"

@@ -24,7 +24,15 @@ export function modifyMainApplication(contents: string): string {
     }
   }
 
-  if (updated.includes('override fun getJSBundleFile(): String?')) {
+  // RN 0.80+ template: no ReactNativeHost, the bundle file is passed to getDefaultReactHost.
+  const reactHostCall = /getDefaultReactHost\(\s*\n(\s*)context = applicationContext,/;
+  if (!updated.includes('DefaultReactNativeHost(') && reactHostCall.test(updated)) {
+    updated = updated.replace(
+      reactHostCall,
+      (match, indent: string) =>
+        `${match}\n${indent}jsBundleFilePath = OtaBundleLoader.getJSBundleFile(applicationContext),`
+    );
+  } else if (updated.includes('override fun getJSBundleFile(): String?')) {
     updated = updated.replace(
       'override fun getJSBundleFile(): String? {',
       'override fun getJSBundleFile(): String? {\n        OtaBundleLoader.getJSBundleFile(applicationContext)?.let { return it }'
@@ -61,13 +69,14 @@ export function modifyAppDelegate(contents: string): string {
   }
 
   let updated = contents;
-  if (!updated.includes('import OtaModule') && !updated.includes('@import OtaModule;') && !updated.includes('OtaModule-Swift.h')) {
+  // The Swift module name comes from `s.module_name` in kaze-sdk.podspec.
+  if (!updated.includes('import kaze_sdk') && !updated.includes('kaze_sdk-Swift.h')) {
     if (updated.includes('import UIKit')) {
-      updated = updated.replace('import UIKit', 'import UIKit\nimport OtaModule');
+      updated = updated.replace('import UIKit', 'import UIKit\nimport kaze_sdk');
     } else if (updated.includes('#import "AppDelegate.h"')) {
       updated = updated.replace(
         '#import "AppDelegate.h"',
-        '#import "AppDelegate.h"\n#import <OtaModule/OtaModule-Swift.h>'
+        '#import "AppDelegate.h"\n#import <kaze_sdk/kaze_sdk-Swift.h>'
       );
     }
   }

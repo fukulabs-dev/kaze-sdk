@@ -5,7 +5,9 @@
 RCT_EXTERN_METHOD(getCurrentBundlePath:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
-RCT_EXTERN_METHOD(setBundleBlacklisted:(NSString *)hash)
+RCT_EXTERN__BLOCKING_SYNCHRONOUS_METHOD(setBundleBlacklisted:(NSString *)hash)
+
+RCT_EXTERN__BLOCKING_SYNCHRONOUS_METHOD(getRunningBundleInfo)
 
 RCT_EXTERN_METHOD(isBundleBlacklisted:(NSString *)hash
                   resolve:(RCTPromiseResolveBlock)resolve

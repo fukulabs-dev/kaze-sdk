@@ -3,7 +3,8 @@ import { TurboModuleRegistry } from 'react-native';
 
 export interface Spec extends TurboModule {
   getCurrentBundlePath(): Promise<string | null>;
-  setBundleBlacklisted(hash: string): void;
+  setBundleBlacklisted(hash: string): boolean;
+  getRunningBundleInfo(): { hash: string | null; stable: boolean };
   isBundleBlacklisted(hash: string): Promise<boolean>;
   setBundleStable(hash: string): void;
   clearBlacklist(): void;

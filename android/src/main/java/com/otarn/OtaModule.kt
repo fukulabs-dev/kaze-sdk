@@ -2,10 +2,12 @@ package com.otarn
 
 import android.content.Context
 import android.util.Base64
+import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.bridge.Promise
+import com.facebook.react.bridge.WritableMap
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -20,13 +22,29 @@ class OtaModule(private val reactContext: ReactApplicationContext) : ReactContex
 
     @ReactMethod
     fun getCurrentBundlePath(promise: Promise) {
-        val path = OtaBundleLoader.getJSBundleFile(reactContext)
+        val path = OtaBundleLoader.resolveBundle(reactContext)?.path
         promise.resolve(path)
     }
 
-    @ReactMethod
-    fun setBundleBlacklisted(hash: String) {
-        prefs.edit().putBoolean("ota_blacklisted_$hash", true).commit()
+    // Synchronous so the write lands before the JS crash handler hands off to RN's fatal handler,
+    // which kills the process.
+    @ReactMethod(isBlockingSynchronousMethod = true)
+    fun setBundleBlacklisted(hash: String): Boolean {
+        return prefs.edit().putBoolean("${OtaBundleLoader.KEY_BLACKLISTED_PREFIX}$hash", true).commit()
+    }
+
+    @ReactMethod(isBlockingSynchronousMethod = true)
+    fun getRunningBundleInfo(): WritableMap {
+        val hash = OtaBundleLoader.runningBundleHash
+        val info = Arguments.createMap()
+        if (hash != null) {
+            info.putString("hash", hash)
+            info.putBoolean("stable", prefs.getBoolean("${OtaBundleLoader.KEY_STABLE_PREFIX}$hash", false))
+        } else {
+            info.putNull("hash")
+            info.putBoolean("stable", true)
+        }
+        return info
     }
 
     @ReactMethod

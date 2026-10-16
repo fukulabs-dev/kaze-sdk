@@ -25,6 +25,31 @@ class MainApplication : Application(), ReactApplication {
     expect(modified).toContain('OtaBundleLoader.getJSBundleFile(applicationContext)');
   });
 
+  it('passes the OTA bundle to getDefaultReactHost in the RN 0.80+ template', () => {
+    const sampleMainApplication = `package com.example.app
+
+import com.facebook.react.defaults.DefaultReactHost.getDefaultReactHost
+
+class MainApplication : Application(), ReactApplication {
+
+  override val reactHost: ReactHost by lazy {
+    getDefaultReactHost(
+      context = applicationContext,
+      packageList =
+        PackageList(this).packages.apply {
+        },
+    )
+  }
+}`;
+
+    const modified = modifyMainApplication(sampleMainApplication);
+    expect(modified).toContain('import com.otarn.OtaBundleLoader');
+    expect(modified).toContain(
+      '      context = applicationContext,\n      jsBundleFilePath = OtaBundleLoader.getJSBundleFile(applicationContext),'
+    );
+    expect(modifyMainApplication(modified)).toBe(modified);
+  });
+
   it('injects OtaBundleLoader into AppDelegate.swift', () => {
     const sampleAppDelegate = `import UIKit
 
@@ -36,7 +61,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 }`;
 
     const modified = modifyAppDelegate(sampleAppDelegate);
-    expect(modified).toContain('import OtaModule');
+    expect(modified).toContain('import kaze_sdk');
+    expect(modified).not.toContain('import OtaModule');
     expect(modified).toContain('OtaBundleLoader.getJSBundleFile()');
   });
 });

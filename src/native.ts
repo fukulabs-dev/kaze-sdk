@@ -1,7 +1,15 @@
+export interface RunningBundleInfo {
+  /** Hash of the OTA bundle this process booted, or null when running the embedded bundle. */
+  hash: string | null;
+  /** Whether that bundle already survived a boot guard window on an earlier launch. */
+  stable: boolean;
+}
+
 export interface NativeOtaModuleLike {
   getCurrentBundlePath?: () => Promise<string | null> | string | null;
   restartApp?: () => void;
-  setBundleBlacklisted?: (hash: string) => void;
+  setBundleBlacklisted?: (hash: string) => boolean | void;
+  getRunningBundleInfo?: () => RunningBundleInfo | null;
   isBundleBlacklisted?: (hash: string) => Promise<boolean> | boolean;
   setBundleStable?: (hash: string) => void;
   clearBlacklist?: () => void;
@@ -86,6 +94,14 @@ export function setNativeBundleBlacklisted(hash: string): void {
   if (mod && typeof mod.setBundleBlacklisted === 'function') {
     mod.setBundleBlacklisted(hash);
   }
+}
+
+export function getNativeRunningBundleInfo(): RunningBundleInfo | null {
+  const mod = getNativeOtaModule();
+  if (mod && typeof mod.getRunningBundleInfo === 'function') {
+    return mod.getRunningBundleInfo() ?? null;
+  }
+  return null;
 }
 
 export async function isNativeBundleBlacklisted(hash: string): Promise<boolean> {

@@ -39,7 +39,11 @@ export interface UseOTAOptions {
   clientUuid?: string;
   autoCheck?: boolean;
   checkOnResume?: boolean;
-  autoApply?: 'next-restart' | 'immediate';
+  /**
+   * What to do once an update is found. 'next-restart' (default) downloads and stages it for the
+   * next cold launch, 'immediate' also restarts the app, 'manual' leaves it to downloadAndStage().
+   */
+  autoApply?: 'next-restart' | 'immediate' | 'manual';
   reportStatus?: boolean;
   fileSystem?: FileSystemAdapter;
   onUpdateAvailable?: (manifest: ReleaseManifest) => void;
@@ -231,7 +235,7 @@ export function createOTAController(
         });
         options.onUpdateAvailable?.(data.manifest);
 
-        if (options.autoApply === 'next-restart' || options.autoApply === 'immediate') {
+        if ((options.autoApply ?? 'next-restart') !== 'manual') {
           void downloadAndStage(data.manifest);
         }
 

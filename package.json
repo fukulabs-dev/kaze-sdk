@@ -1,6 +1,6 @@
 {
-  "name": "@fukulabs/kaze",
-  "version": "0.1.0",
+  "name": "@fukulabs/kaze-sdk",
+  "version": "0.1.0-beta.0",
   "description": "Kaze: React Native Client SDK for Over-The-Air updates by fukulabs.dev",
   "license": "MIT",
   "homepage": "https://github.com/fukulabs/kaze-sdk#readme",
@@ -43,7 +43,7 @@
     "plugin/dist",
     "README.md",
     "LICENSE",
-    "fukulabs-kaze.podspec"
+    "kaze-sdk.podspec"
   ],
   "codegenConfig": {
     "name": "OtaModuleSpec",

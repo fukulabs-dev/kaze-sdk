@@ -68,6 +68,50 @@ describe('BootGuard Rollback Safeguard', () => {
     expect(guard.isBundleTesting('failing_bundle_hash')).toBe(false);
   });
 
+  it('does not blacklist on non-fatal errors', () => {
+    let currentHandler: ((error: Error, isFatal?: boolean) => void) | undefined;
+    const mockErrorUtils: ErrorUtilsLike = {
+      getGlobalHandler: () => currentHandler,
+      setGlobalHandler: (h) => {
+        currentHandler = h;
+      },
+    };
+
+    const guard = initBootGuard({
+      storage: storageAdapter,
+      activeHash: 'soft_error_hash',
+      errorUtils: mockErrorUtils,
+    });
+
+    currentHandler!(new Error('soft error'), false);
+    expect(guard.isBundleBlacklisted('soft_error_hash')).toBe(false);
+    expect(guard.isBundleTesting('soft_error_hash')).toBe(true);
+  });
+
+  it('guards the native running bundle when it is not yet stable', () => {
+    setNativeOtaModuleForTesting({
+      getRunningBundleInfo: () => ({ hash: 'native_new_hash', stable: false }),
+      setBundleBlacklisted: vi.fn(() => true),
+    });
+
+    const guard = initBootGuard({ storage: storageAdapter, attachHandler: false });
+    expect(guard.isBundleTesting('native_new_hash')).toBe(true);
+  });
+
+  it('skips guarding when the native running bundle is already stable or embedded', () => {
+    setNativeOtaModuleForTesting({
+      getRunningBundleInfo: () => ({ hash: 'native_stable_hash', stable: true }),
+    });
+    const stableGuard = initBootGuard({ storage: storageAdapter, attachHandler: false });
+    expect(stableGuard.getTestingBundle()).toBeNull();
+
+    setNativeOtaModuleForTesting({
+      getRunningBundleInfo: () => ({ hash: null, stable: true }),
+    });
+    const embeddedGuard = initBootGuard({ storage: storageAdapter, attachHandler: false });
+    expect(embeddedGuard.getTestingBundle()).toBeNull();
+  });
+
   it('unsubscribes and restores original handler when cleanup callback is called', () => {
     const originalHandler = vi.fn();
     let installedHandler: ((error: Error, isFatal?: boolean) => void) | undefined = originalHandler;

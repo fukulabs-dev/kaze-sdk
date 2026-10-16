@@ -184,6 +184,7 @@ describe('Live End-to-End OTA Integration', () => {
       platform: 'android',
       runtimeVersion: '1.0.0',
       channel: 'production',
+      autoApply: 'manual',
       fileSystem: fs,
       onDownloadProgress: (p) => {
         progressUpdates.push(p);

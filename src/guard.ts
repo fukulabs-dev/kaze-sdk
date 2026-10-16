@@ -1,4 +1,4 @@
-import { setNativeBundleBlacklisted, setNativeBundleStable } from './native';
+import { getNativeRunningBundleInfo, setNativeBundleBlacklisted, setNativeBundleStable } from './native';
 import { NativeStorage } from './storage';
 
 export interface KeyValueStorage {
@@ -80,7 +80,8 @@ export function attachGlobalErrorHandler(guard: BootGuard, errorUtils?: ErrorUti
 
   const crashHandler = (error: Error, isFatal?: boolean) => {
     const testingBundle = guard.getTestingBundle();
-    if (testingBundle) {
+    // Soft errors (isFatal === false) don't take the app down, so they aren't a reason to roll back.
+    if (testingBundle && isFatal !== false) {
       guard.recordCrash(testingBundle, error?.message || 'Fatal boot crash');
     }
     if (prevHandler) {
@@ -98,7 +99,11 @@ export function attachGlobalErrorHandler(guard: BootGuard, errorUtils?: ErrorUti
 }
 
 export interface InitBootGuardOptions extends Partial<BootGuardOptions> {
-  activeHash?: string;
+  /**
+   * Hash of the bundle to guard. Defaults to the OTA bundle the native loader booted, when that
+   * bundle has not yet been marked stable. Pass null to skip guarding.
+   */
+  activeHash?: string | null;
   attachHandler?: boolean;
   errorUtils?: ErrorUtilsLike;
 }
@@ -112,8 +117,13 @@ export function initBootGuard(options: InitBootGuardOptions = {}): BootGuard {
   if (options.attachHandler !== false) {
     attachGlobalErrorHandler(guard, options.errorUtils);
   }
-  if (options.activeHash) {
-    guard.onBundleBoot(options.activeHash);
+  let activeHash = options.activeHash;
+  if (activeHash === undefined) {
+    const running = getNativeRunningBundleInfo();
+    activeHash = running?.hash && !running.stable ? running.hash : null;
+  }
+  if (activeHash) {
+    guard.onBundleBoot(activeHash);
   }
   return guard;
 }
