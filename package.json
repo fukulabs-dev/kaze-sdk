@@ -1,0 +1,30 @@
+{
+  "name": "@fukulabs/kaze",
+  "version": "0.1.0",
+  "description": "Kaze: React Native Client SDK for Over-The-Air updates by fukulabs.dev",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "zod": "^3.23.8"
+  },
+  "peerDependencies": {
+    "react": "*",
+    "react-native": "*"
+  },
+  "peerDependenciesMeta": {
+    "react-native": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^22.8.7",
+    "@types/react": "^18.3.12",
+    "react": "^18.3.1",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.3"
+  }
+}
