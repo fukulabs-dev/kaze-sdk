@@ -3,3 +3,7 @@ dist
 plugin/dist
 coverage
 *.log
+android/.gradle
+android/build
+ios/build
+tasks/
