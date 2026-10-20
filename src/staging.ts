@@ -7,7 +7,7 @@ export interface FileSystemAdapter {
   unzip?(zipRelativePath: string, targetSlotDir: string): Promise<boolean>;
 }
 import {
-  getNativeOtaModule,
+  getNativeKazeModule,
   nativeWriteBundleFile,
   nativeReadBundleFile,
   nativeBundleFileExists,
@@ -79,7 +79,7 @@ export class NativeFileSystemAdapter implements FileSystemAdapter {
   }
 
   async writeFile(path: string, content: string | Uint8Array): Promise<void> {
-    const mod = getNativeOtaModule();
+    const mod = getNativeKazeModule();
     if (mod && typeof mod.writeBundleFile === 'function') {
       const isBase64 = content instanceof Uint8Array;
       const payload = isBase64 ? uint8ArrayToBase64(content) : content;
@@ -90,7 +90,7 @@ export class NativeFileSystemAdapter implements FileSystemAdapter {
   }
 
   async readFile(path: string): Promise<string | null> {
-    const mod = getNativeOtaModule();
+    const mod = getNativeKazeModule();
     if (mod && typeof mod.readBundleFile === 'function') {
       return await nativeReadBundleFile(path);
     }
@@ -98,7 +98,7 @@ export class NativeFileSystemAdapter implements FileSystemAdapter {
   }
 
   async exists(path: string): Promise<boolean> {
-    const mod = getNativeOtaModule();
+    const mod = getNativeKazeModule();
     if (mod && typeof mod.bundleFileExists === 'function') {
       return await nativeBundleFileExists(path);
     }
@@ -106,7 +106,7 @@ export class NativeFileSystemAdapter implements FileSystemAdapter {
   }
 
   async remove(path: string): Promise<void> {
-    const mod = getNativeOtaModule();
+    const mod = getNativeKazeModule();
     if (mod && typeof mod.deleteBundlePath === 'function') {
       await nativeDeleteBundlePath(path);
       return;
@@ -115,7 +115,7 @@ export class NativeFileSystemAdapter implements FileSystemAdapter {
   }
 
   async unzip(zipRelativePath: string, targetSlotDir: string): Promise<boolean> {
-    const mod = getNativeOtaModule();
+    const mod = getNativeKazeModule();
     if (mod && typeof mod.unzipBundleFile === 'function') {
       return await nativeUnzipBundleFile(zipRelativePath, targetSlotDir);
     }

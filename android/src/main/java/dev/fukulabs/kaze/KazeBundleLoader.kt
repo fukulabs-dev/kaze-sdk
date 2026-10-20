@@ -1,4 +1,4 @@
-package com.otarn
+package dev.fukulabs.kaze
 
 import android.content.Context
 import android.content.pm.ApplicationInfo
@@ -6,7 +6,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import java.io.File
 
-object OtaBundleLoader {
+object KazeBundleLoader {
     const val OTA_DIR = "ota"
     private const val CURRENT_DIR = "current"
     private const val BUNDLE_FILE_NAME = "index.android.bundle"

@@ -7,19 +7,27 @@ export interface ExpoConfigLike {
 
 export type ConfigPlugin<T = unknown> = (config: ExpoConfigLike, props?: T) => ExpoConfigLike;
 
-export function modifyMainApplication(contents: string): string {
-  if (contents.includes('OtaBundleLoader.getJSBundleFile')) {
+// Native files patched by 0.1.0-beta.0/beta.1 reference the old com.otarn / Ota* names.
+function migrateLegacyNames(contents: string): string {
+  return contents
+    .replaceAll('import com.otarn.OtaBundleLoader', 'import dev.fukulabs.kaze.KazeBundleLoader')
+    .replaceAll('OtaBundleLoader', 'KazeBundleLoader');
+}
+
+export function modifyMainApplication(source: string): string {
+  const contents = migrateLegacyNames(source);
+  if (contents.includes('KazeBundleLoader.getJSBundleFile')) {
     return contents;
   }
 
   let updated = contents;
-  if (!updated.includes('import com.otarn.OtaBundleLoader')) {
+  if (!updated.includes('import dev.fukulabs.kaze.KazeBundleLoader')) {
     const packageIndex = updated.indexOf('package ');
     if (packageIndex !== -1) {
       const packageLineEnd = updated.indexOf('\n', packageIndex);
       updated =
         updated.slice(0, packageLineEnd + 1) +
-        'import com.otarn.OtaBundleLoader\n' +
+        'import dev.fukulabs.kaze.KazeBundleLoader\n' +
         updated.slice(packageLineEnd + 1);
     }
   }
@@ -30,19 +38,19 @@ export function modifyMainApplication(contents: string): string {
     updated = updated.replace(
       reactHostCall,
       (match, indent: string) =>
-        `${match}\n${indent}jsBundleFilePath = OtaBundleLoader.getJSBundleFile(applicationContext),`
+        `${match}\n${indent}jsBundleFilePath = KazeBundleLoader.getJSBundleFile(applicationContext),`
     );
   } else if (updated.includes('override fun getJSBundleFile(): String?')) {
     updated = updated.replace(
       'override fun getJSBundleFile(): String? {',
-      'override fun getJSBundleFile(): String? {\n        OtaBundleLoader.getJSBundleFile(applicationContext)?.let { return it }'
+      'override fun getJSBundleFile(): String? {\n        KazeBundleLoader.getJSBundleFile(applicationContext)?.let { return it }'
     );
   } else if (updated.includes('object : DefaultReactNativeHost(this) {')) {
     updated = updated.replace(
       'object : DefaultReactNativeHost(this) {',
       `object : DefaultReactNativeHost(this) {
           override fun getJSBundleFile(): String? {
-            return OtaBundleLoader.getJSBundleFile(applicationContext) ?: super.getJSBundleFile()
+            return KazeBundleLoader.getJSBundleFile(applicationContext) ?: super.getJSBundleFile()
           }`
     );
   } else if (updated.includes('override val reactNativeHost: ReactNativeHost =')) {
@@ -51,7 +59,7 @@ export function modifyMainApplication(contents: string): string {
       `override val reactNativeHost: ReactNativeHost =
     object : DefaultReactNativeHost(this) {
       override fun getJSBundleFile(): String? {
-        return OtaBundleLoader.getJSBundleFile(applicationContext) ?: super.getJSBundleFile()
+        return KazeBundleLoader.getJSBundleFile(applicationContext) ?: super.getJSBundleFile()
       }
     } // kaze-ota-injected\n  val _origReactNativeHost =`
     );
@@ -64,7 +72,7 @@ function swiftOtaOverride(indent: string, signature: string, fallbackCall: strin
   return [
     `${indent}${signature} {`,
     '#if !DEBUG',
-    `${indent}  if let otaUrl = OtaBundleLoader.getJSBundleFile() {`,
+    `${indent}  if let otaUrl = KazeBundleLoader.getJSBundleFile() {`,
     `${indent}    return otaUrl`,
     `${indent}  }`,
     '#endif',
@@ -74,10 +82,11 @@ function swiftOtaOverride(indent: string, signature: string, fallbackCall: strin
   ].join('\n');
 }
 
-export function modifyAppDelegate(contents: string): string {
+export function modifyAppDelegate(source: string): string {
+  const contents = migrateLegacyNames(source);
   if (
-    contents.includes('OtaBundleLoader.getJSBundleFile') ||
-    contents.includes('OtaBundleLoader.bundleURL')
+    contents.includes('KazeBundleLoader.getJSBundleFile') ||
+    contents.includes('KazeBundleLoader.bundleURL')
   ) {
     return contents;
   }
@@ -116,7 +125,7 @@ export function modifyAppDelegate(contents: string): string {
   } else if (updated.includes('- (NSURL *)sourceURLForBridge:(RCTBridge *)bridge\n{')) {
     updated = updated.replace(
       '- (NSURL *)sourceURLForBridge:(RCTBridge *)bridge\n{',
-      '- (NSURL *)sourceURLForBridge:(RCTBridge *)bridge\n{\n#if !DEBUG\n  NSURL *otaUrl = [OtaBundleLoader getJSBundleFile];\n  if (otaUrl) {\n    return otaUrl;\n  }\n#endif'
+      '- (NSURL *)sourceURLForBridge:(RCTBridge *)bridge\n{\n#if !DEBUG\n  NSURL *otaUrl = [KazeBundleLoader getJSBundleFile];\n  if (otaUrl) {\n    return otaUrl;\n  }\n#endif'
     );
   }
 

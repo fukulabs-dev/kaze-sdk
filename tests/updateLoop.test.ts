@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { stageBundle, MemoryFileSystemAdapter, NativeFileSystemAdapter } from '../src/staging';
-import { setNativeOtaModuleForTesting } from '../src/native';
+import { setNativeKazeModuleForTesting } from '../src/native';
 import { createOTAController } from '../src/useOTA';
 import { checkUpdate } from '../src/updater';
 import { computeSha256 } from '../src/sha256';
@@ -42,12 +42,12 @@ function makeFetch(manifest: ReturnType<typeof makeManifest>, bundleBytes: Uint8
 
 describe('staging slot selection', () => {
   beforeEach(() => {
-    setNativeOtaModuleForTesting(null);
+    setNativeKazeModuleForTesting(null);
   });
 
   it('never stages into the slot the app is running from', async () => {
     let activeSlot = 'slot_b';
-    setNativeOtaModuleForTesting({
+    setNativeKazeModuleForTesting({
       // Running slot_a while an earlier update already sits staged in slot_b.
       getRunningBundleInfo: () => ({ hash: RUNNING_HASH, slot: 'slot_a', stable: true }),
       getActiveSlot: () => activeSlot,
@@ -99,7 +99,7 @@ describe('staging slot selection', () => {
 
   it('NativeFileSystemAdapter.remove delegates to native deleteBundlePath', async () => {
     const deleteBundlePath = vi.fn().mockResolvedValue(true);
-    setNativeOtaModuleForTesting({ deleteBundlePath });
+    setNativeKazeModuleForTesting({ deleteBundlePath });
 
     await new NativeFileSystemAdapter().remove('ota/slot_b');
     expect(deleteBundlePath).toHaveBeenCalledWith('ota/slot_b');
@@ -108,11 +108,11 @@ describe('staging slot selection', () => {
 
 describe('update loop', () => {
   beforeEach(() => {
-    setNativeOtaModuleForTesting(null);
+    setNativeKazeModuleForTesting(null);
   });
 
   it('sends the native running bundle hash as currentHash by default', async () => {
-    setNativeOtaModuleForTesting({
+    setNativeKazeModuleForTesting({
       getRunningBundleInfo: () => ({ hash: RUNNING_HASH, slot: 'slot_a', stable: true }),
     });
     const bytes = new TextEncoder().encode('console.log("v2");');

@@ -6,7 +6,7 @@ import {
   NativeFileSystemAdapter,
   getDefaultFileSystemAdapter,
 } from '../src/staging';
-import { setNativeOtaModuleForTesting } from '../src/native';
+import { setNativeKazeModuleForTesting } from '../src/native';
 import zlib from 'node:zlib';
 
 function createTestZip(files: Record<string, string>): Uint8Array {
@@ -90,7 +90,7 @@ function createTestZip(files: Record<string, string>): Uint8Array {
 }
 
   beforeEach(() => {
-    setNativeOtaModuleForTesting(null);
+    setNativeKazeModuleForTesting(null);
   });
 
 describe('Bundle Staging & Native File Bridge', () => {
@@ -192,7 +192,7 @@ describe('Bundle Staging & Native File Bridge', () => {
       readBundleFile: vi.fn().mockResolvedValue('read-content'),
       bundleFileExists: vi.fn().mockResolvedValue(true),
     };
-    setNativeOtaModuleForTesting(mockOta);
+    setNativeKazeModuleForTesting(mockOta);
 
     const adapter = new NativeFileSystemAdapter();
 
@@ -214,7 +214,7 @@ describe('Bundle Staging & Native File Bridge', () => {
   });
 
   it('NativeFileSystemAdapter transparently falls back to in-memory storage when no native module is installed', async () => {
-    setNativeOtaModuleForTesting(null);
+    setNativeKazeModuleForTesting(null);
     const adapter = new NativeFileSystemAdapter();
 
     expect(await adapter.exists('test.txt')).toBe(false);
@@ -234,7 +234,7 @@ describe('Bundle Staging & Native File Bridge', () => {
       readBundleFile: vi.fn().mockResolvedValue(null),
       bundleFileExists: vi.fn().mockResolvedValue(true),
     };
-    setNativeOtaModuleForTesting(mockOta);
+    setNativeKazeModuleForTesting(mockOta);
 
     const adapter = new NativeFileSystemAdapter();
     const result = await stageBundle({
@@ -269,7 +269,7 @@ describe('Bundle Staging & Native File Bridge', () => {
         return true;
       }),
     };
-    setNativeOtaModuleForTesting(mockOta);
+    setNativeKazeModuleForTesting(mockOta);
 
     const fs = new MemoryFileSystemAdapter();
 
@@ -320,7 +320,7 @@ describe('Bundle Staging & Native File Bridge', () => {
     const mockOta = {
       unzipBundleFile: vi.fn().mockResolvedValue(true),
     };
-    setNativeOtaModuleForTesting(mockOta);
+    setNativeKazeModuleForTesting(mockOta);
 
     const adapter = new NativeFileSystemAdapter();
     const ok = await adapter.unzip('ota/staging.zip', 'ota/slot_a');

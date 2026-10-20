@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { BootGuard, attachGlobalErrorHandler, initBootGuard } from '../src/guard';
 import type { ErrorUtilsLike } from '../src/guard';
-import { setNativeOtaModuleForTesting } from '../src/native';
+import { setNativeKazeModuleForTesting } from '../src/native';
 
 describe('BootGuard Rollback Safeguard', () => {
   let mockStorage: Record<string, string>;
@@ -9,7 +9,7 @@ describe('BootGuard Rollback Safeguard', () => {
   beforeEach(() => {
     mockStorage = {};
     vi.restoreAllMocks();
-    setNativeOtaModuleForTesting(null);
+    setNativeKazeModuleForTesting(null);
   });
 
   const storageAdapter = {
@@ -89,7 +89,7 @@ describe('BootGuard Rollback Safeguard', () => {
   });
 
   it('guards the native running bundle when it is not yet stable', () => {
-    setNativeOtaModuleForTesting({
+    setNativeKazeModuleForTesting({
       getRunningBundleInfo: () => ({ hash: 'native_new_hash', stable: false }),
       setBundleBlacklisted: vi.fn(() => true),
     });
@@ -99,13 +99,13 @@ describe('BootGuard Rollback Safeguard', () => {
   });
 
   it('skips guarding when the native running bundle is already stable or embedded', () => {
-    setNativeOtaModuleForTesting({
+    setNativeKazeModuleForTesting({
       getRunningBundleInfo: () => ({ hash: 'native_stable_hash', stable: true }),
     });
     const stableGuard = initBootGuard({ storage: storageAdapter, attachHandler: false });
     expect(stableGuard.getTestingBundle()).toBeNull();
 
-    setNativeOtaModuleForTesting({
+    setNativeKazeModuleForTesting({
       getRunningBundleInfo: () => ({ hash: null, stable: true }),
     });
     const embeddedGuard = initBootGuard({ storage: storageAdapter, attachHandler: false });
@@ -136,7 +136,7 @@ describe('BootGuard Rollback Safeguard', () => {
       setBundleBlacklisted: vi.fn(),
       setBundleStable: vi.fn(),
     };
-    setNativeOtaModuleForTesting(mockOta);
+    setNativeKazeModuleForTesting(mockOta);
 
     const guard = initBootGuard({
       activeHash: 'test_sync_hash',

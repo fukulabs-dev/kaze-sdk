@@ -19,4 +19,4 @@ export interface Spec extends TurboModule {
   getRollbackSlot(): Promise<string | null>;
 }
 
-export default TurboModuleRegistry.get<Spec>('OtaModule');
+export default TurboModuleRegistry.get<Spec>('KazeModule');

@@ -2,13 +2,13 @@ import Foundation
 import React
 import zlib
 
-@objc(OtaModule)
-public class OtaModule: NSObject {
+@objc(KazeModule)
+public class KazeModule: NSObject {
     private let blacklistedPrefix = "ota_blacklisted_"
     private let stablePrefix = "ota_stable_"
 
     @objc public func getCurrentBundlePath(_ resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
-        let path = OtaBundleLoader.resolveBundle()?.url.path
+        let path = KazeBundleLoader.resolveBundle()?.url.path
         resolve(path)
     }
 
@@ -20,7 +20,7 @@ public class OtaModule: NSObject {
     }
 
     @objc public func getRunningBundleInfo() -> NSDictionary {
-        guard let running = OtaBundleLoader.runningBundle else {
+        guard let running = KazeBundleLoader.runningBundle else {
             return ["hash": NSNull(), "slot": NSNull(), "stable": true]
         }
         let stable = UserDefaults.standard.bool(forKey: "\(stablePrefix)\(running.hash)")
@@ -292,29 +292,29 @@ public class OtaModule: NSObject {
     }
 
     @objc public func getActiveSlot(_ resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
-        let active = UserDefaults.standard.string(forKey: OtaBundleLoader.activeSlotKey)
+        let active = UserDefaults.standard.string(forKey: KazeBundleLoader.activeSlotKey)
         resolve(active)
     }
 
     @objc public func switchActiveSlot(_ newSlot: String, resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
         let defaults = UserDefaults.standard
-        let currentActive = defaults.string(forKey: OtaBundleLoader.activeSlotKey)
+        let currentActive = defaults.string(forKey: KazeBundleLoader.activeSlotKey)
         if let current = currentActive, current != newSlot {
-            defaults.set(current, forKey: OtaBundleLoader.rollbackSlotKey)
+            defaults.set(current, forKey: KazeBundleLoader.rollbackSlotKey)
         }
-        defaults.set(newSlot, forKey: OtaBundleLoader.activeSlotKey)
+        defaults.set(newSlot, forKey: KazeBundleLoader.activeSlotKey)
         defaults.synchronize()
         resolve(true)
     }
 
     @objc public func getRollbackSlot(_ resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
-        let rollback = UserDefaults.standard.string(forKey: OtaBundleLoader.rollbackSlotKey)
+        let rollback = UserDefaults.standard.string(forKey: KazeBundleLoader.rollbackSlotKey)
         resolve(rollback)
     }
 
     // Reloads JS in place instead of killing the process (exit() quits the app and is flagged in
     // App Review). Both the bridge and RCTHost re-ask the AppDelegate for the bundle URL on reload,
-    // so OtaBundleLoader picks up the newly staged slot.
+    // so KazeBundleLoader picks up the newly staged slot.
     @objc public func restartApp() {
         DispatchQueue.main.async {
             RCTTriggerReloadCommandListeners("kaze: apply staged update")

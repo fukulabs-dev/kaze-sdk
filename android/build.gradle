@@ -22,7 +22,7 @@ if (isNewArchitectureEnabled()) {
     apply plugin: "com.facebook.react"
 }
 android {
-    namespace "com.otarn"
+    namespace "dev.fukulabs.kaze"
     compileSdkVersion safeExtGet('compileSdkVersion', 34)
 
     defaultConfig {

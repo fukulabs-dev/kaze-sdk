@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   restartApp,
   getCurrentBundlePath,
-  getNativeOtaModule,
+  getNativeKazeModule,
   setNativeBundleBlacklisted,
   isNativeBundleBlacklisted,
   setNativeBundleStable,
@@ -14,7 +14,7 @@ import {
   switchNativeActiveSlot,
   getNativeRollbackSlot,
   nativeUnzipBundleFile,
-  setNativeOtaModuleForTesting,
+  setNativeKazeModuleForTesting,
   setReactNativeResolverForTesting,
 } from '../src/native';
 import { NativeStorage } from '../src/storage';
@@ -22,13 +22,13 @@ import { NativeStorage } from '../src/storage';
 describe('Native Module Bridge', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    setNativeOtaModuleForTesting(null);
+    setNativeKazeModuleForTesting(null);
     setReactNativeResolverForTesting(null);
   });
   it('safely handles environments without react-native', async () => {
     expect(() => restartApp()).not.toThrow();
     await expect(getCurrentBundlePath()).resolves.toBeNull();
-    expect(getNativeOtaModule()).toBeNull();
+    expect(getNativeKazeModule()).toBeNull();
     expect(() => setNativeBundleBlacklisted('hash_1')).not.toThrow();
     await expect(isNativeBundleBlacklisted('hash_1')).resolves.toBe(false);
     expect(() => setNativeBundleStable('hash_1')).not.toThrow();
@@ -59,7 +59,7 @@ describe('Native Module Bridge', () => {
     expect(storage.get('custom_key')).toBeNull();
   });
 
-  it('delegates to NativeModules.OtaModule when present', async () => {
+  it('delegates to NativeModules.KazeModule when present', async () => {
     const mockOta = {
       getCurrentBundlePath: vi.fn().mockResolvedValue('/data/user/0/app/files/ota/current/index.android.bundle'),
       restartApp: vi.fn(),
@@ -76,7 +76,7 @@ describe('Native Module Bridge', () => {
       unzipBundleFile: vi.fn().mockResolvedValue(true),
     };
 
-    setNativeOtaModuleForTesting(mockOta);
+    setNativeKazeModuleForTesting(mockOta);
 
     const path = await getCurrentBundlePath();
     expect(path).toBe('/data/user/0/app/files/ota/current/index.android.bundle');
@@ -125,18 +125,18 @@ describe('Native Module Bridge', () => {
     expect(mockOta.unzipBundleFile).toHaveBeenCalledWith('ota/staging.zip', 'ota/slot_a');
   });
 
-  it('resolves OtaModule from TurboModuleRegistry when available', () => {
+  it('resolves KazeModule from TurboModuleRegistry when available', () => {
     const mockTurboModule = {
       getCurrentBundlePath: vi.fn().mockResolvedValue('/turbo/slot_a/bundle.js'),
     };
     setReactNativeResolverForTesting(() => ({
       TurboModuleRegistry: {
-        get: vi.fn((name: string) => (name === 'OtaModule' ? mockTurboModule : null)),
+        get: vi.fn((name: string) => (name === 'KazeModule' ? mockTurboModule : null)),
       },
       NativeModules: {},
     }));
 
-    const mod = getNativeOtaModule();
+    const mod = getNativeKazeModule();
     expect(mod).toBe(mockTurboModule);
   });
 
@@ -149,11 +149,11 @@ describe('Native Module Bridge', () => {
         get: vi.fn(() => null),
       },
       NativeModules: {
-        OtaModule: mockLegacyModule,
+        KazeModule: mockLegacyModule,
       },
     }));
 
-    const mod = getNativeOtaModule();
+    const mod = getNativeKazeModule();
     expect(mod).toBe(mockLegacyModule);
   });
 
@@ -168,11 +168,11 @@ describe('Native Module Bridge', () => {
         }),
       },
       NativeModules: {
-        OtaModule: mockLegacyModule,
+        KazeModule: mockLegacyModule,
       },
     }));
 
-    const mod = getNativeOtaModule();
+    const mod = getNativeKazeModule();
     expect(mod).toBe(mockLegacyModule);
   });
 });

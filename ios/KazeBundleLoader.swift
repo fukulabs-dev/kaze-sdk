@@ -1,6 +1,6 @@
 import Foundation
 
-@objc public class OtaBundleLoader: NSObject {
+@objc public class KazeBundleLoader: NSObject {
     static let otaDir = "ota"
     private static let currentDir = "current"
     private static let bundleFileName = "main.jsbundle"

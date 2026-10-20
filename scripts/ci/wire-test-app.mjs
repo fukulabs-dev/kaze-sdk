@@ -26,7 +26,7 @@ function findFiles(dir, predicate) {
 function patch(file, transform) {
   const before = readFileSync(file, 'utf8');
   const after = transform(before);
-  if (!after.includes('OtaBundleLoader.getJSBundleFile')) {
+  if (!after.includes('KazeBundleLoader.getJSBundleFile')) {
     console.error(`Plugin did not inject the OTA loader into ${file}. Current template:\n\n${before}`);
     process.exit(1);
   }

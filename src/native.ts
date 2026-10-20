@@ -7,7 +7,7 @@ export interface RunningBundleInfo {
   stable: boolean;
 }
 
-export interface NativeOtaModuleLike {
+export interface NativeKazeModuleLike {
   getCurrentBundlePath?: () => Promise<string | null> | string | null;
   restartApp?: () => void;
   setBundleBlacklisted?: (hash: string) => boolean | void;
@@ -25,10 +25,10 @@ export interface NativeOtaModuleLike {
   unzipBundleFile?: (zipRelativePath: string, targetSlotDir: string) => Promise<boolean> | boolean;
 }
 
-let testingNativeModule: NativeOtaModuleLike | null = null;
+let testingNativeModule: NativeKazeModuleLike | null = null;
 let testingReactNativeResolver: (() => Record<string, unknown> | null) | null = null;
 
-export function setNativeOtaModuleForTesting(mod: NativeOtaModuleLike | null): void {
+export function setNativeKazeModuleForTesting(mod: NativeKazeModuleLike | null): void {
   testingNativeModule = mod;
 }
 
@@ -36,7 +36,7 @@ export function setReactNativeResolverForTesting(resolver: (() => Record<string,
   testingReactNativeResolver = resolver;
 }
 
-export function getNativeOtaModule(): NativeOtaModuleLike | null {
+export function getNativeKazeModule(): NativeKazeModuleLike | null {
   if (testingNativeModule) {
     return testingNativeModule;
   }
@@ -52,9 +52,9 @@ export function getNativeOtaModule(): NativeOtaModuleLike | null {
         if ('TurboModuleRegistry' in rn && rn.TurboModuleRegistry && typeof rn.TurboModuleRegistry === 'object') {
           const tmRegistry = rn.TurboModuleRegistry as { get?: (name: string) => unknown };
           if (typeof tmRegistry.get === 'function') {
-            const tm = tmRegistry.get('OtaModule');
+            const tm = tmRegistry.get('KazeModule');
             if (tm && typeof tm === 'object') {
-              return tm as NativeOtaModuleLike;
+              return tm as NativeKazeModuleLike;
             }
           }
         }
@@ -65,9 +65,9 @@ export function getNativeOtaModule(): NativeOtaModuleLike | null {
       // 2. Fall back to NativeModules (Legacy Bridge & Interop Layer)
       if ('NativeModules' in rn && rn.NativeModules && typeof rn.NativeModules === 'object') {
         const nm = rn.NativeModules as Record<string, unknown>;
-        const ota = nm['OtaModule'];
+        const ota = nm['KazeModule'];
         if (ota && typeof ota === 'object') {
-          return ota as NativeOtaModuleLike;
+          return ota as NativeKazeModuleLike;
         }
       }
     }
@@ -78,14 +78,14 @@ export function getNativeOtaModule(): NativeOtaModuleLike | null {
 }
 
 export function restartApp(): void {
-  const mod = getNativeOtaModule();
+  const mod = getNativeKazeModule();
   if (mod && typeof mod.restartApp === 'function') {
     mod.restartApp();
   }
 }
 
 export async function getCurrentBundlePath(): Promise<string | null> {
-  const mod = getNativeOtaModule();
+  const mod = getNativeKazeModule();
   if (mod && typeof mod.getCurrentBundlePath === 'function') {
     return await mod.getCurrentBundlePath();
   }
@@ -93,14 +93,14 @@ export async function getCurrentBundlePath(): Promise<string | null> {
 }
 
 export function setNativeBundleBlacklisted(hash: string): void {
-  const mod = getNativeOtaModule();
+  const mod = getNativeKazeModule();
   if (mod && typeof mod.setBundleBlacklisted === 'function') {
     mod.setBundleBlacklisted(hash);
   }
 }
 
 export function getNativeRunningBundleInfo(): RunningBundleInfo | null {
-  const mod = getNativeOtaModule();
+  const mod = getNativeKazeModule();
   if (mod && typeof mod.getRunningBundleInfo === 'function') {
     return mod.getRunningBundleInfo() ?? null;
   }
@@ -108,7 +108,7 @@ export function getNativeRunningBundleInfo(): RunningBundleInfo | null {
 }
 
 export async function isNativeBundleBlacklisted(hash: string): Promise<boolean> {
-  const mod = getNativeOtaModule();
+  const mod = getNativeKazeModule();
   if (mod && typeof mod.isBundleBlacklisted === 'function') {
     return await mod.isBundleBlacklisted(hash);
   }
@@ -116,21 +116,21 @@ export async function isNativeBundleBlacklisted(hash: string): Promise<boolean> 
 }
 
 export function setNativeBundleStable(hash: string): void {
-  const mod = getNativeOtaModule();
+  const mod = getNativeKazeModule();
   if (mod && typeof mod.setBundleStable === 'function') {
     mod.setBundleStable(hash);
   }
 }
 
 export function clearNativeBlacklist(): void {
-  const mod = getNativeOtaModule();
+  const mod = getNativeKazeModule();
   if (mod && typeof mod.clearBlacklist === 'function') {
     mod.clearBlacklist();
   }
 }
 
 export async function nativeWriteBundleFile(path: string, content: string, isBase64 = false): Promise<boolean> {
-  const mod = getNativeOtaModule();
+  const mod = getNativeKazeModule();
   if (mod && typeof mod.writeBundleFile === 'function') {
     const res = await mod.writeBundleFile(path, content, isBase64);
     return res !== false;
@@ -139,7 +139,7 @@ export async function nativeWriteBundleFile(path: string, content: string, isBas
 }
 
 export async function nativeReadBundleFile(path: string): Promise<string | null> {
-  const mod = getNativeOtaModule();
+  const mod = getNativeKazeModule();
   if (mod && typeof mod.readBundleFile === 'function') {
     return await mod.readBundleFile(path);
   }
@@ -147,7 +147,7 @@ export async function nativeReadBundleFile(path: string): Promise<string | null>
 }
 
 export async function nativeBundleFileExists(path: string): Promise<boolean> {
-  const mod = getNativeOtaModule();
+  const mod = getNativeKazeModule();
   if (mod && typeof mod.bundleFileExists === 'function') {
     return await mod.bundleFileExists(path);
   }
@@ -155,7 +155,7 @@ export async function nativeBundleFileExists(path: string): Promise<boolean> {
 }
 
 export async function nativeDeleteBundlePath(path: string): Promise<boolean> {
-  const mod = getNativeOtaModule();
+  const mod = getNativeKazeModule();
   if (mod && typeof mod.deleteBundlePath === 'function') {
     const res = await mod.deleteBundlePath(path);
     return res !== false;
@@ -164,7 +164,7 @@ export async function nativeDeleteBundlePath(path: string): Promise<boolean> {
 }
 
 export async function getNativeActiveSlot(): Promise<string | null> {
-  const mod = getNativeOtaModule();
+  const mod = getNativeKazeModule();
   if (mod && typeof mod.getActiveSlot === 'function') {
     return await mod.getActiveSlot();
   }
@@ -172,7 +172,7 @@ export async function getNativeActiveSlot(): Promise<string | null> {
 }
 
 export async function switchNativeActiveSlot(newSlot: string): Promise<boolean> {
-  const mod = getNativeOtaModule();
+  const mod = getNativeKazeModule();
   if (mod && typeof mod.switchActiveSlot === 'function') {
     const res = await mod.switchActiveSlot(newSlot);
     return res !== false;
@@ -181,7 +181,7 @@ export async function switchNativeActiveSlot(newSlot: string): Promise<boolean> 
 }
 
 export async function getNativeRollbackSlot(): Promise<string | null> {
-  const mod = getNativeOtaModule();
+  const mod = getNativeKazeModule();
   if (mod && typeof mod.getRollbackSlot === 'function') {
     return await mod.getRollbackSlot();
   }
@@ -189,7 +189,7 @@ export async function getNativeRollbackSlot(): Promise<string | null> {
 }
 
 export async function nativeUnzipBundleFile(zipRelativePath: string, targetSlotDir: string): Promise<boolean> {
-  const mod = getNativeOtaModule();
+  const mod = getNativeKazeModule();
   if (mod && typeof mod.unzipBundleFile === 'function') {
     return await mod.unzipBundleFile(zipRelativePath, targetSlotDir);
   }

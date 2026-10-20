@@ -39,25 +39,30 @@
     "dist",
     "src",
     "android",
+    "!android/build",
+    "!android/.gradle",
+    "!android/.cxx",
     "ios",
+    "!ios/build",
     "plugin/dist",
     "README.md",
     "LICENSE",
     "kaze-sdk.podspec"
   ],
   "codegenConfig": {
-    "name": "OtaModuleSpec",
+    "name": "KazeModuleSpec",
     "type": "modules",
     "jsSrcsDir": "src",
     "android": {
-      "javaPackageName": "com.otarn"
+      "javaPackageName": "dev.fukulabs.kaze"
     }
   },
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
-    "build": "tsc && tsc -p plugin",
+    "clean": "node -e \"for (const d of ['dist', 'plugin/dist']) require('fs').rmSync(d, { recursive: true, force: true })\"",
+    "build": "npm run clean && tsc && tsc -p plugin",
     "test": "vitest run",
     "prepublishOnly": "npm run test && npm run build"
   },

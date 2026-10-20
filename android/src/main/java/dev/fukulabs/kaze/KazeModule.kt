@@ -1,4 +1,4 @@
-package com.otarn
+package dev.fukulabs.kaze
 
 import android.content.Context
 import android.util.Base64
@@ -13,8 +13,8 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.BufferedInputStream
 import java.util.zip.ZipInputStream
-class OtaModule(private val reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
-    override fun getName(): String = "OtaModule"
+class KazeModule(private val reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
+    override fun getName(): String = "KazeModule"
 
     private val prefs by lazy {
         reactContext.getSharedPreferences("ota_prefs", Context.MODE_PRIVATE)
@@ -22,7 +22,7 @@ class OtaModule(private val reactContext: ReactApplicationContext) : ReactContex
 
     @ReactMethod
     fun getCurrentBundlePath(promise: Promise) {
-        val path = OtaBundleLoader.resolveBundle(reactContext)?.path
+        val path = KazeBundleLoader.resolveBundle(reactContext)?.path
         promise.resolve(path)
     }
 
@@ -30,17 +30,17 @@ class OtaModule(private val reactContext: ReactApplicationContext) : ReactContex
     // which kills the process.
     @ReactMethod(isBlockingSynchronousMethod = true)
     fun setBundleBlacklisted(hash: String): Boolean {
-        return prefs.edit().putBoolean("${OtaBundleLoader.KEY_BLACKLISTED_PREFIX}$hash", true).commit()
+        return prefs.edit().putBoolean("${KazeBundleLoader.KEY_BLACKLISTED_PREFIX}$hash", true).commit()
     }
 
     @ReactMethod(isBlockingSynchronousMethod = true)
     fun getRunningBundleInfo(): WritableMap {
-        val running = OtaBundleLoader.runningBundle
+        val running = KazeBundleLoader.runningBundle
         val info = Arguments.createMap()
         if (running != null) {
             info.putString("hash", running.hash)
             info.putString("slot", running.slot)
-            info.putBoolean("stable", prefs.getBoolean("${OtaBundleLoader.KEY_STABLE_PREFIX}${running.hash}", false))
+            info.putBoolean("stable", prefs.getBoolean("${KazeBundleLoader.KEY_STABLE_PREFIX}${running.hash}", false))
         } else {
             info.putNull("hash")
             info.putNull("slot")
@@ -185,25 +185,25 @@ class OtaModule(private val reactContext: ReactApplicationContext) : ReactContex
 
     @ReactMethod
     fun getActiveSlot(promise: Promise) {
-        val active = prefs.getString(OtaBundleLoader.KEY_ACTIVE_SLOT, null)
+        val active = prefs.getString(KazeBundleLoader.KEY_ACTIVE_SLOT, null)
         promise.resolve(active)
     }
 
     @ReactMethod
     fun switchActiveSlot(newSlot: String, promise: Promise) {
-        val currentActive = prefs.getString(OtaBundleLoader.KEY_ACTIVE_SLOT, null)
+        val currentActive = prefs.getString(KazeBundleLoader.KEY_ACTIVE_SLOT, null)
         val editor = prefs.edit()
         if (currentActive != null && currentActive != newSlot) {
-            editor.putString(OtaBundleLoader.KEY_ROLLBACK_SLOT, currentActive)
+            editor.putString(KazeBundleLoader.KEY_ROLLBACK_SLOT, currentActive)
         }
-        editor.putString(OtaBundleLoader.KEY_ACTIVE_SLOT, newSlot)
+        editor.putString(KazeBundleLoader.KEY_ACTIVE_SLOT, newSlot)
         val ok = editor.commit()
         promise.resolve(ok)
     }
 
     @ReactMethod
     fun getRollbackSlot(promise: Promise) {
-        val rollback = prefs.getString(OtaBundleLoader.KEY_ROLLBACK_SLOT, null)
+        val rollback = prefs.getString(KazeBundleLoader.KEY_ROLLBACK_SLOT, null)
         promise.resolve(rollback)
     }
 
