@@ -133,32 +133,33 @@ public class OtaModule: NSObject {
         guard initStatus == Z_OK else { return nil }
         defer { inflateEnd(&stream) }
 
-        var output = Data(count: max(expectedSize, 1024))
-        var totalOut = 0
+        // Inflate into a fixed chunk and append it afterwards; touching `output` while its bytes are
+        // borrowed mutably violates Swift's exclusive access rules.
+        let chunkSize = 64 * 1024
+        var chunk = [UInt8](repeating: 0, count: chunkSize)
+        var output = Data(capacity: max(expectedSize, chunkSize))
+        var status: Int32 = Z_OK
 
-        return compressed.withUnsafeBytes { (rawIn: UnsafeRawBufferPointer) -> Data? in
-            guard let inBase = rawIn.baseAddress?.assumingMemoryBound(to: Bytef.self) else { return nil }
+        let finished = compressed.withUnsafeBytes { (rawIn: UnsafeRawBufferPointer) -> Bool in
+            guard let inBase = rawIn.bindMemory(to: Bytef.self).baseAddress else { return false }
             stream.next_in = UnsafeMutablePointer(mutating: inBase)
             stream.avail_in = uInt(compressed.count)
 
-            var status = Z_OK
             while status == Z_OK {
-                if totalOut >= output.count {
-                    output.count *= 2
-                }
-                let countBefore = totalOut
-                output.withUnsafeMutableBytes { (rawOut: UnsafeMutableRawBufferPointer) in
-                    guard let outBase = rawOut.baseAddress?.assumingMemoryBound(to: Bytef.self) else { return }
-                    stream.next_out = outBase.advanced(by: countBefore)
-                    stream.avail_out = uInt(output.count - countBefore)
+                let produced = chunk.withUnsafeMutableBufferPointer { (buffer: inout UnsafeMutableBufferPointer<UInt8>) -> Int in
+                    stream.next_out = buffer.baseAddress
+                    stream.avail_out = uInt(chunkSize)
                     status = inflate(&stream, Z_NO_FLUSH)
-                    totalOut = output.count - Int(stream.avail_out)
+                    return chunkSize - Int(stream.avail_out)
                 }
+                if status != Z_OK && status != Z_STREAM_END {
+                    return false
+                }
+                output.append(contentsOf: chunk[0..<produced])
             }
-            guard status == Z_STREAM_END else { return nil }
-            output.count = totalOut
-            return output
+            return true
         }
+        return finished ? output : nil
     }
 
     @objc public func unzipBundleFile(_ zipRelativePath: String, targetSlotDir: String, resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
