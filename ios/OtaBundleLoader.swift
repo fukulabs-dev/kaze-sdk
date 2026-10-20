@@ -10,8 +10,8 @@ import Foundation
     public static let rollbackSlotKey = "ota_rollback_slot"
     private static let binaryVersionKey = "ota_binary_version"
 
-    /// Hash of the OTA bundle handed to React Native by the last getJSBundleFile call in this process.
-    @objc public private(set) static var runningBundleHash: String?
+    /// The OTA bundle handed to React Native by the last getJSBundleFile call in this process.
+    public private(set) static var runningBundle: (hash: String, slot: String)?
 
     /// Alias of getJSBundleFile for host apps that call it at boot.
     @objc public static func bundleURL() -> URL? {
@@ -19,14 +19,20 @@ import Foundation
     }
 
     @objc public static func getJSBundleFile() -> URL? {
+        #if DEBUG
+        // Debug builds load from Metro / the embedded bundle; OTA is for release builds.
+        runningBundle = nil
+        return nil
+        #else
         invalidateIfBinaryChanged()
         let resolved = resolveBundle()
-        runningBundleHash = resolved?.hash
+        runningBundle = resolved.map { (hash: $0.hash, slot: $0.slot) }
         return resolved?.url
+        #endif
     }
 
     /// Picks the bundle that would load now, without recording it as running.
-    static func resolveBundle() -> (url: URL, hash: String?)? {
+    static func resolveBundle() -> (url: URL, hash: String, slot: String)? {
         guard let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
             return nil
         }
@@ -59,21 +65,16 @@ import Foundation
                 continue
             }
 
-            var hash: String?
-            if FileManager.default.fileExists(atPath: hashURL.path) {
-                do {
-                    let slotHash = try String(contentsOf: hashURL, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
-                    let isBlacklisted = defaults.bool(forKey: "\(blacklistedPrefix)\(slotHash)")
-                    if isBlacklisted {
-                        continue
-                    }
-                    hash = slotHash
-                } catch {
-                    continue
-                }
+            // bundle.hash is written last when staging, so a slot without it is incomplete.
+            guard let rawHash = try? String(contentsOf: hashURL, encoding: .utf8) else {
+                continue
+            }
+            let hash = rawHash.trimmingCharacters(in: .whitespacesAndNewlines)
+            if hash.isEmpty || defaults.bool(forKey: "\(blacklistedPrefix)\(hash)") {
+                continue
             }
 
-            return (bundleURL, hash)
+            return (bundleURL, hash, slot)
         }
 
         return nil

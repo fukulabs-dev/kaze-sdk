@@ -64,5 +64,30 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     expect(modified).toContain('import kaze_sdk');
     expect(modified).not.toContain('import OtaModule');
     expect(modified).toContain('OtaBundleLoader.getJSBundleFile()');
+    expect(modified).toMatch(/#if !DEBUG\n\s+if let otaUrl = OtaBundleLoader\.getJSBundleFile\(\)[\s\S]*?#endif/);
+  });
+
+  it('keeps implicit returns compiling in the RN 0.80+ SceneDelegate bundleURL', () => {
+    const sceneDelegate = `import React
+import UIKit
+
+class SceneDelegate: RCTDefaultReactNativeFactoryDelegate, UIWindowSceneDelegate {
+  override func bundleURL() -> URL? {
+    #if DEBUG
+    RCTBundleURLProvider.sharedSettings().jsBundleURL(forBundleRoot: "index")
+    #else
+    Bundle.main.url(forResource: "main", withExtension: "jsbundle")
+    #endif
+  }
+}`;
+
+    const modified = modifyAppDelegate(sceneDelegate);
+    expect(modified).toContain('import kaze_sdk');
+    expect(modified).toContain(
+      '  override func bundleURL() -> URL? {\n#if !DEBUG\n    if let otaUrl = OtaBundleLoader.getJSBundleFile() {\n      return otaUrl\n    }\n#endif\n    return kazeEmbeddedBundleURL()\n  }\n'
+    );
+    // The original body, implicit returns included, becomes the helper.
+    expect(modified).toContain('  func kazeEmbeddedBundleURL() -> URL? {\n    #if DEBUG\n    RCTBundleURLProvider');
+    expect(modifyAppDelegate(modified)).toBe(modified);
   });
 });

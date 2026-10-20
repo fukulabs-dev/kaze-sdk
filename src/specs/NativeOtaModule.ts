@@ -4,7 +4,7 @@ import { TurboModuleRegistry } from 'react-native';
 export interface Spec extends TurboModule {
   getCurrentBundlePath(): Promise<string | null>;
   setBundleBlacklisted(hash: string): boolean;
-  getRunningBundleInfo(): { hash: string | null; stable: boolean };
+  getRunningBundleInfo(): { hash: string | null; slot: string | null; stable: boolean };
   isBundleBlacklisted(hash: string): Promise<boolean>;
   setBundleStable(hash: string): void;
   clearBlacklist(): void;
@@ -12,6 +12,7 @@ export interface Spec extends TurboModule {
   writeBundleFile(relativePath: string, content: string, isBase64: boolean): Promise<boolean>;
   readBundleFile(relativePath: string): Promise<string | null>;
   bundleFileExists(relativePath: string): Promise<boolean>;
+  deleteBundlePath(relativePath: string): Promise<boolean>;
   unzipBundleFile(zipRelativePath: string, targetSlotDir: string): Promise<boolean>;
   getActiveSlot(): Promise<string | null>;
   switchActiveSlot(newSlot: string): Promise<boolean>;

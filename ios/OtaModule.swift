@@ -20,11 +20,11 @@ public class OtaModule: NSObject {
     }
 
     @objc public func getRunningBundleInfo() -> NSDictionary {
-        guard let hash = OtaBundleLoader.runningBundleHash else {
-            return ["hash": NSNull(), "stable": true]
+        guard let running = OtaBundleLoader.runningBundle else {
+            return ["hash": NSNull(), "slot": NSNull(), "stable": true]
         }
-        let stable = UserDefaults.standard.bool(forKey: "\(stablePrefix)\(hash)")
-        return ["hash": hash, "stable": stable]
+        let stable = UserDefaults.standard.bool(forKey: "\(stablePrefix)\(running.hash)")
+        return ["hash": running.hash, "slot": running.slot, "stable": stable]
     }
 
     @objc public func isBundleBlacklisted(_ hash: String, resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
@@ -112,6 +112,21 @@ public class OtaModule: NSObject {
         resolve(exists)
     }
 
+    @objc public func deleteBundlePath(_ relativePath: String, resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+        guard !relativePath.trimmingCharacters(in: .whitespaces).isEmpty, let targetURL = resolveSafeURL(for: relativePath) else {
+            reject("SECURITY_ERROR", "Invalid path: \(relativePath)", nil)
+            return
+        }
+        do {
+            if FileManager.default.fileExists(atPath: targetURL.path) {
+                try FileManager.default.removeItem(at: targetURL)
+            }
+            resolve(true)
+        } catch {
+            reject("FILE_DELETE_ERROR", error.localizedDescription, error)
+        }
+    }
+
     private func decompressRawDeflate(compressed: Data, expectedSize: Int) -> Data? {
         var stream = z_stream()
         let initStatus = inflateInit2_(&stream, -15, zlibVersion(), Int32(MemoryLayout<z_stream>.size))
@@ -173,7 +188,7 @@ public class OtaModule: NSObject {
                 guard let base = bytes.baseAddress else { return }
                 var i = count - 22
                 while i >= searchLimit {
-                    let sig = base.load(fromByteOffset: i, as: UInt32.self)
+                    let sig = base.loadUnaligned(fromByteOffset: i, as: UInt32.self)
                     if sig == 0x06054b50 {
                         eocdOffset = i
                         break
@@ -188,24 +203,24 @@ public class OtaModule: NSObject {
             }
 
             let eocd = zipData.subdata(in: eocdOffset..<count)
-            let totalEntries = Int(eocd.withUnsafeBytes { $0.load(fromByteOffset: 10, as: UInt16.self) })
-            let cdOffset = Int(eocd.withUnsafeBytes { $0.load(fromByteOffset: 16, as: UInt32.self) })
+            let totalEntries = Int(eocd.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 10, as: UInt16.self) })
+            let cdOffset = Int(eocd.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 16, as: UInt32.self) })
 
             var curr = cdOffset
             let targetCanonical = targetURL.standardizedFileURL.path
 
             for _ in 0..<totalEntries {
                 guard curr + 46 <= eocdOffset else { break }
-                let cdSig = zipData.withUnsafeBytes { $0.load(fromByteOffset: curr, as: UInt32.self) }
+                let cdSig = zipData.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: curr, as: UInt32.self) }
                 guard cdSig == 0x02014b50 else { break }
 
-                let method = Int(zipData.withUnsafeBytes { $0.load(fromByteOffset: curr + 10, as: UInt16.self) })
-                let compressedSize = Int(zipData.withUnsafeBytes { $0.load(fromByteOffset: curr + 20, as: UInt32.self) })
-                let uncompressedSize = Int(zipData.withUnsafeBytes { $0.load(fromByteOffset: curr + 24, as: UInt32.self) })
-                let fileNameLen = Int(zipData.withUnsafeBytes { $0.load(fromByteOffset: curr + 28, as: UInt16.self) })
-                let extraLen = Int(zipData.withUnsafeBytes { $0.load(fromByteOffset: curr + 30, as: UInt16.self) })
-                let commentLen = Int(zipData.withUnsafeBytes { $0.load(fromByteOffset: curr + 32, as: UInt16.self) })
-                let localOffset = Int(zipData.withUnsafeBytes { $0.load(fromByteOffset: curr + 42, as: UInt32.self) })
+                let method = Int(zipData.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: curr + 10, as: UInt16.self) })
+                let compressedSize = Int(zipData.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: curr + 20, as: UInt32.self) })
+                let uncompressedSize = Int(zipData.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: curr + 24, as: UInt32.self) })
+                let fileNameLen = Int(zipData.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: curr + 28, as: UInt16.self) })
+                let extraLen = Int(zipData.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: curr + 30, as: UInt16.self) })
+                let commentLen = Int(zipData.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: curr + 32, as: UInt16.self) })
+                let localOffset = Int(zipData.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: curr + 42, as: UInt32.self) })
 
                 let fileNameData = zipData.subdata(in: (curr + 46)..<(curr + 46 + fileNameLen))
                 guard let fileName = String(data: fileNameData, encoding: .utf8) else {
@@ -236,8 +251,8 @@ public class OtaModule: NSObject {
                     reject("INVALID_ZIP", "Corrupt local header offset for \(fileName)", nil)
                     return
                 }
-                let localNameLen = Int(zipData.withUnsafeBytes { $0.load(fromByteOffset: localOffset + 26, as: UInt16.self) })
-                let localExtraLen = Int(zipData.withUnsafeBytes { $0.load(fromByteOffset: localOffset + 28, as: UInt16.self) })
+                let localNameLen = Int(zipData.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: localOffset + 26, as: UInt16.self) })
+                let localExtraLen = Int(zipData.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: localOffset + 28, as: UInt16.self) })
                 let dataStart = localOffset + 30 + localNameLen + localExtraLen
                 let dataEnd = dataStart + compressedSize
 

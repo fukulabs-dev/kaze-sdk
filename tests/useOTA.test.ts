@@ -53,7 +53,7 @@ describe('useOTA & OTAController State Machine', () => {
     );
 
     const result = await controller.check();
-    expect(result).toEqual(mockManifest);
+    expect(result).toMatchObject(mockManifest);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(controller.getState().updateAvailable).toBe(true);
     expect(controller.getState().manifest?.id).toBe('rel_1');
@@ -99,7 +99,7 @@ describe('useOTA & OTAController State Machine', () => {
 
     await controller.check();
     await vi.waitFor(() => expect(controller.getState().status).toBe('ready'));
-    expect(onStaged).toHaveBeenCalledWith(mockManifest);
+    expect(onStaged).toHaveBeenCalledWith(expect.objectContaining(mockManifest));
   });
 
   it('handles network failure gracefully', async () => {
@@ -180,7 +180,7 @@ describe('useOTA & OTAController State Machine', () => {
     expect(success).toBe(true);
     expect(controller.getState().status).toBe('ready');
     expect(controller.getState().progress).toBe(100);
-    expect(onStaged).toHaveBeenCalledWith(mockManifest);
+    expect(onStaged).toHaveBeenCalledWith(expect.objectContaining(mockManifest));
     expect(fs.files['ota/slot_a/index.android.bundle']).toBeDefined();
   });
 

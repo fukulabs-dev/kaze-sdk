@@ -8,7 +8,7 @@ import {
   getDefaultFileSystemAdapter,
   type FileSystemAdapter,
 } from './staging';
-import { restartApp } from './native';
+import { getNativeRunningBundleInfo, restartApp } from './native';
 
 function resolvePlatform(platform?: 'android' | 'ios'): 'android' | 'ios' {
   if (platform) return platform;
@@ -34,6 +34,7 @@ export interface UseOTAOptions {
   platform?: 'android' | 'ios';
   runtimeVersion: string;
   channel?: string;
+  /** Hash of the running bundle sent to the server. Defaults to the OTA bundle the native loader booted. */
   currentHash?: string;
   deviceId?: string;
   clientUuid?: string;
@@ -89,6 +90,10 @@ export function createOTAController(
   const listeners = new Set<(state: OTAState) => void>();
   const fs = options.fileSystem || fileSystemAdapter || getDefaultFileSystemAdapter();
   const platform = resolvePlatform(options.platform);
+  const runningHash = options.currentHash ?? getNativeRunningBundleInfo()?.hash ?? undefined;
+  // Bundle staged by this controller and waiting for the next launch; not downloaded again.
+  let stagedHash: string | null = null;
+  let inFlight: { hash: string; promise: Promise<boolean> } | null = null;
 
   const updateState = (partial: Partial<OTAState>) => {
     state = { ...state, ...partial };
@@ -106,6 +111,24 @@ export function createOTAController(
     if (!manifestToDownload) {
       return false;
     }
+    const targetHash = manifestToDownload.bundleHash.toLowerCase();
+    if (targetHash === stagedHash) {
+      return true;
+    }
+    // A second call for the same bundle (e.g. auto-download plus a manual call) joins the first.
+    if (inFlight?.hash === targetHash) {
+      return inFlight.promise;
+    }
+    const promise = runDownloadAndStage(manifestToDownload, targetHash).finally(() => {
+      if (inFlight?.promise === promise) {
+        inFlight = null;
+      }
+    });
+    inFlight = { hash: targetHash, promise };
+    return promise;
+  };
+
+  const runDownloadAndStage = async (manifestToDownload: ReleaseManifest, targetHash: string): Promise<boolean> => {
 
     updateState({
       status: 'downloading',
@@ -148,6 +171,7 @@ export function createOTAController(
       if (!stageResult.success) {
         throw new Error(stageResult.error || 'Failed to stage bundle');
       }
+      stagedHash = targetHash;
 
       updateState({
         status: 'ready',
@@ -219,14 +243,26 @@ export function createOTAController(
           platform,
           runtimeVersion: options.runtimeVersion,
           channel: options.channel || 'production',
-          currentHash: options.currentHash,
+          currentHash: runningHash,
           deviceId: options.deviceId,
           clientUuid: options.clientUuid,
         },
         fetchFn
       );
 
-      if (data.updateAvailable && data.manifest) {
+      const offeredHash = data.manifest?.bundleHash.toLowerCase();
+      if (data.updateAvailable && data.manifest && offeredHash === stagedHash) {
+        // Already downloaded; it activates on the next launch.
+        updateState({
+          status: 'ready',
+          isChecking: false,
+          updateAvailable: true,
+          manifest: data.manifest,
+        });
+        return data.manifest;
+      }
+
+      if (data.updateAvailable && data.manifest && offeredHash !== runningHash?.toLowerCase()) {
         updateState({
           status: 'idle',
           isChecking: false,

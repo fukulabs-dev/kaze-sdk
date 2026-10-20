@@ -1,4 +1,5 @@
 import { computeSha256 } from './sha256';
+import { CheckUpdateResponseSchema } from './types';
 import type { CheckUpdateRequest, CheckUpdateResponse, ReportUpdateRequest } from './types';
 
 export { computeSha256 };
@@ -33,7 +34,23 @@ export async function checkUpdate(
   if (!res.ok) {
     throw new Error(`Check update failed with status ${res.status}`);
   }
-  return (await res.json()) as CheckUpdateResponse;
+  const parsed = CheckUpdateResponseSchema.safeParse(await res.json());
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    throw new Error(`Invalid check update response: ${issue.path.join('.') || 'body'}: ${issue.message}`);
+  }
+  const data = parsed.data;
+  if (data.updateAvailable && data.manifest) {
+    if (data.manifest.platform !== request.platform) {
+      throw new Error(`Server offered a ${data.manifest.platform} bundle to a ${request.platform} client`);
+    }
+    if (data.manifest.runtimeVersion !== request.runtimeVersion) {
+      throw new Error(
+        `Server offered a bundle for runtime ${data.manifest.runtimeVersion}, client runs ${request.runtimeVersion}`
+      );
+    }
+  }
+  return data;
 }
 
 interface ReadableStreamReaderLike {

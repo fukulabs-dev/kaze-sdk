@@ -60,6 +60,20 @@ export function modifyMainApplication(contents: string): string {
   return updated;
 }
 
+function swiftOtaOverride(indent: string, signature: string, fallbackCall: string): string {
+  return [
+    `${indent}${signature} {`,
+    '#if !DEBUG',
+    `${indent}  if let otaUrl = OtaBundleLoader.getJSBundleFile() {`,
+    `${indent}    return otaUrl`,
+    `${indent}  }`,
+    '#endif',
+    `${indent}  return ${fallbackCall}`,
+    `${indent}}`,
+    '',
+  ].join('\n');
+}
+
 export function modifyAppDelegate(contents: string): string {
   if (
     contents.includes('OtaBundleLoader.getJSBundleFile') ||
@@ -81,20 +95,28 @@ export function modifyAppDelegate(contents: string): string {
     }
   }
 
-  if (updated.includes('override func bundleURL() -> URL? {')) {
+  // Swift: the original body moves into a helper so implicit returns (`#if DEBUG expr #else expr`,
+  // as in the RN 0.80+ SceneDelegate) keep compiling; the override tries the OTA bundle first.
+  const bundleURLDecl = /^([ \t]*)override func bundleURL\(\) -> URL\? \{/m;
+  const sourceURLDecl = /^([ \t]*)override func sourceURL\(for bridge: RCTBridge!\) -> URL! \{/m;
+  if (bundleURLDecl.test(updated)) {
     updated = updated.replace(
-      'override func bundleURL() -> URL? {',
-      'override func bundleURL() -> URL? {\n    if let otaUrl = OtaBundleLoader.getJSBundleFile() {\n        return otaUrl\n    }'
+      bundleURLDecl,
+      (_match, indent: string) =>
+        `${swiftOtaOverride(indent, 'override func bundleURL() -> URL?', 'kazeEmbeddedBundleURL()')}\n` +
+        `${indent}func kazeEmbeddedBundleURL() -> URL? {`
     );
-  } else if (updated.includes('override func sourceURL(for bridge: RCTBridge!) -> URL! {')) {
+  } else if (sourceURLDecl.test(updated)) {
     updated = updated.replace(
-      'override func sourceURL(for bridge: RCTBridge!) -> URL! {',
-      'override func sourceURL(for bridge: RCTBridge!) -> URL! {\n    if let otaUrl = OtaBundleLoader.getJSBundleFile() {\n        return otaUrl\n    }'
+      sourceURLDecl,
+      (_match, indent: string) =>
+        `${swiftOtaOverride(indent, 'override func sourceURL(for bridge: RCTBridge!) -> URL!', 'kazeEmbeddedSourceURL(for: bridge)')}\n` +
+        `${indent}func kazeEmbeddedSourceURL(for bridge: RCTBridge!) -> URL! {`
     );
   } else if (updated.includes('- (NSURL *)sourceURLForBridge:(RCTBridge *)bridge\n{')) {
     updated = updated.replace(
       '- (NSURL *)sourceURLForBridge:(RCTBridge *)bridge\n{',
-      '- (NSURL *)sourceURLForBridge:(RCTBridge *)bridge\n{\n  NSURL *otaUrl = [OtaBundleLoader getJSBundleFile];\n  if (otaUrl) {\n    return otaUrl;\n  }'
+      '- (NSURL *)sourceURLForBridge:(RCTBridge *)bridge\n{\n#if !DEBUG\n  NSURL *otaUrl = [OtaBundleLoader getJSBundleFile];\n  if (otaUrl) {\n    return otaUrl;\n  }\n#endif'
     );
   }
 

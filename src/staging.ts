@@ -2,6 +2,8 @@ export interface FileSystemAdapter {
   writeFile(path: string, content: string | Uint8Array): Promise<void>;
   readFile(path: string): Promise<string | null>;
   exists(path: string): Promise<boolean>;
+  /** Recursively removes a file or directory. Missing paths are not an error. */
+  remove?(path: string): Promise<void>;
   unzip?(zipRelativePath: string, targetSlotDir: string): Promise<boolean>;
 }
 import {
@@ -10,7 +12,9 @@ import {
   nativeReadBundleFile,
   nativeBundleFileExists,
   getNativeActiveSlot,
+  getNativeRunningBundleInfo,
   switchNativeActiveSlot,
+  nativeDeleteBundlePath,
   nativeUnzipBundleFile,
 } from './native';
 import { inflateRaw } from './inflate';
@@ -57,6 +61,14 @@ export class MemoryFileSystemAdapter implements FileSystemAdapter {
   async exists(path: string): Promise<boolean> {
     return this.files[path] !== undefined;
   }
+
+  async remove(path: string): Promise<void> {
+    for (const key of Object.keys(this.files)) {
+      if (key === path || key.startsWith(`${path}/`)) {
+        delete this.files[key];
+      }
+    }
+  }
 }
 
 export class NativeFileSystemAdapter implements FileSystemAdapter {
@@ -93,6 +105,15 @@ export class NativeFileSystemAdapter implements FileSystemAdapter {
     return await this.fallback.exists(path);
   }
 
+  async remove(path: string): Promise<void> {
+    const mod = getNativeOtaModule();
+    if (mod && typeof mod.deleteBundlePath === 'function') {
+      await nativeDeleteBundlePath(path);
+      return;
+    }
+    await this.fallback.remove?.(path);
+  }
+
   async unzip(zipRelativePath: string, targetSlotDir: string): Promise<boolean> {
     const mod = getNativeOtaModule();
     if (mod && typeof mod.unzipBundleFile === 'function') {
@@ -125,14 +146,25 @@ export interface StageBundleResult {
   error?: string;
 }
 
+/**
+ * Never stage into the slot the app is running from: its assets are still being read. When the
+ * embedded bundle is running, alternate away from the currently active slot.
+ */
+async function pickTargetSlot(): Promise<string> {
+  const runningSlot = getNativeRunningBundleInfo()?.slot;
+  if (runningSlot === 'slot_a') return 'slot_b';
+  if (runningSlot === 'slot_b') return 'slot_a';
+  const currentActive = await getNativeActiveSlot();
+  return currentActive === 'slot_a' ? 'slot_b' : 'slot_a';
+}
+
 export async function stageBundle(options: StageBundleOptions): Promise<StageBundleResult> {
   let targetSlot: string | undefined = options.slot;
   let targetDir = options.targetDir;
 
   if (!targetDir) {
     if (!targetSlot) {
-      const currentActive = await getNativeActiveSlot();
-      targetSlot = currentActive === 'slot_a' ? 'slot_b' : 'slot_a';
+      targetSlot = await pickTargetSlot();
     }
     targetDir = `ota/${targetSlot}`;
   }
@@ -155,6 +187,10 @@ export async function stageBundle(options: StageBundleOptions): Promise<StageBun
       error: `Missing entrypoint: ${expectedEntrypoint} is required for ${options.platform}`,
     };
   }
+
+  // Clear leftovers from the slot's previous bundle. Removing bundle.hash first also makes the
+  // native loader skip this slot until staging finishes, since bundle.hash is written last.
+  await options.fileSystem.remove?.(targetDir);
 
   for (const [relativePath, content] of Object.entries(options.files)) {
     const fullPath = `${targetDir}/${relativePath}`;

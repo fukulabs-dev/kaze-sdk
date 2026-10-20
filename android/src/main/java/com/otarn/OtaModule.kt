@@ -35,13 +35,15 @@ class OtaModule(private val reactContext: ReactApplicationContext) : ReactContex
 
     @ReactMethod(isBlockingSynchronousMethod = true)
     fun getRunningBundleInfo(): WritableMap {
-        val hash = OtaBundleLoader.runningBundleHash
+        val running = OtaBundleLoader.runningBundle
         val info = Arguments.createMap()
-        if (hash != null) {
-            info.putString("hash", hash)
-            info.putBoolean("stable", prefs.getBoolean("${OtaBundleLoader.KEY_STABLE_PREFIX}$hash", false))
+        if (running != null) {
+            info.putString("hash", running.hash)
+            info.putString("slot", running.slot)
+            info.putBoolean("stable", prefs.getBoolean("${OtaBundleLoader.KEY_STABLE_PREFIX}${running.hash}", false))
         } else {
             info.putNull("hash")
+            info.putNull("slot")
             info.putBoolean("stable", true)
         }
         return info
@@ -119,6 +121,20 @@ class OtaModule(private val reactContext: ReactApplicationContext) : ReactContex
             promise.resolve(targetFile.exists())
         } catch (e: Exception) {
             promise.reject("FILE_EXISTS_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun deleteBundlePath(relativePath: String, promise: Promise) {
+        try {
+            if (relativePath.contains("..") || relativePath.isBlank()) {
+                promise.reject("SECURITY_ERROR", "Invalid path: $relativePath")
+                return
+            }
+            val target = File(reactContext.filesDir, relativePath)
+            promise.resolve(!target.exists() || target.deleteRecursively())
+        } catch (e: Exception) {
+            promise.reject("FILE_DELETE_ERROR", e.message, e)
         }
     }
 

@@ -101,18 +101,33 @@ class MainApplication : Application(), ReactApplication {
 
 #### iOS Setup
 
-In your `AppDelegate.swift` (or `AppDelegate.mm`), point bundle loading to `OtaBundleLoader`:
+Find `override func bundleURL() -> URL?`. In the React Native 0.80+ template it is in `SceneDelegate.swift`; in older templates and Expo it is in `AppDelegate.swift`. Rename the existing function to a helper and add an override that tries the OTA bundle first:
 
 ```swift
 import kaze_sdk
 
-override func sourceURL(for bridge: RCTBridge!) -> URL! {
-    if let otaUrl = OtaBundleLoader.getJSBundleFile() {
-        return otaUrl
-    }
-    return Bundle.main.url(forResource: "main", withExtension: "jsbundle")
+override func bundleURL() -> URL? {
+#if !DEBUG
+  if let otaUrl = OtaBundleLoader.getJSBundleFile() {
+    return otaUrl
+  }
+#endif
+  return kazeEmbeddedBundleURL()
+}
+
+// Your original bundleURL() body, unchanged.
+func kazeEmbeddedBundleURL() -> URL? {
+  #if DEBUG
+  RCTBundleURLProvider.sharedSettings().jsBundleURL(forBundleRoot: "index")
+  #else
+  Bundle.main.url(forResource: "main", withExtension: "jsbundle")
+  #endif
 }
 ```
+
+Older apps that implement `sourceURL(for bridge:)` instead follow the same pattern with that method. The Expo plugin applies this change for you.
+
+> OTA bundles are only loaded in release builds. Debug builds (and debuggable Android builds) always use Metro or the embedded bundle, so test updates with a release build.
 
 ---
 
@@ -171,6 +186,7 @@ export default function App() {
 | `autoCheck` | `boolean` | No | `true` | Automatically checks for updates on mount. |
 | `checkOnResume` | `boolean` | No | `false` | Automatically checks for updates when app returns from background to foreground. |
 | `reportStatus` | `boolean` | No | `true` | Automatically reports staging and failure telemetry to the Kaze server. |
+| `currentHash` | `string` | No | Running OTA bundle | Hash of the bundle the app is running, sent to the server. Detected from the native loader when omitted. |
 | `clientUuid` | `string` | No | - | Optional persistent client UUID for targeted rollout tracking. |
 | `fileSystem` | `FileSystemAdapter` | No | `NativeFileSystemAdapter` | Pluggable filesystem adapter (defaults to zero-dependency native disk staging). |
 | `onUpdateAvailable` | `(manifest) => void` | No | - | Callback invoked when a new bundle release is discovered. |

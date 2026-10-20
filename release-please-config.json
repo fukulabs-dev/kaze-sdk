@@ -1,0 +1,26 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "last-release-sha": "4b004b41c7002e3effaf34396fe59e5ec2d29ba4",
+  "packages": {
+    ".": {
+      "release-type": "node",
+      "package-name": "@fukulabs/kaze-sdk",
+      "changelog-path": "CHANGELOG.md",
+      "include-component-in-tag": false,
+      "prerelease": true,
+      "prerelease-type": "beta",
+      "versioning": "prerelease",
+      "bump-minor-pre-major": true,
+      "changelog-sections": [
+        { "type": "feat", "section": "Features" },
+        { "type": "fix", "section": "Bug Fixes" },
+        { "type": "perf", "section": "Performance" },
+        { "type": "revert", "section": "Reverts" },
+        { "type": "docs", "section": "Documentation" },
+        { "type": "chore", "section": "Miscellaneous", "hidden": true },
+        { "type": "ci", "section": "CI", "hidden": true },
+        { "type": "test", "section": "Tests", "hidden": true }
+      ]
+    }
+  }
+}

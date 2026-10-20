@@ -1,6 +1,7 @@
 package com.otarn
 
 import android.content.Context
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.os.Build
 import java.io.File
@@ -18,18 +19,23 @@ object OtaBundleLoader {
     const val DEFAULT_SLOT_A = "slot_a"
     const val DEFAULT_SLOT_B = "slot_b"
 
-    data class ResolvedBundle(val path: String, val hash: String?)
+    data class ResolvedBundle(val path: String, val hash: String, val slot: String)
 
-    /** Hash of the OTA bundle handed to React Native by the last getJSBundleFile call in this process. */
+    /** The OTA bundle handed to React Native by the last getJSBundleFile call in this process. */
     @Volatile
-    var runningBundleHash: String? = null
+    var runningBundle: ResolvedBundle? = null
         private set
 
     @JvmStatic
     fun getJSBundleFile(context: Context): String? {
+        // Debuggable builds load from Metro / the embedded bundle; OTA is for release builds.
+        if ((context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
+            runningBundle = null
+            return null
+        }
         invalidateIfBinaryChanged(context)
         val resolved = resolveBundle(context)
-        runningBundleHash = resolved?.hash
+        runningBundle = resolved
         return resolved?.path
     }
 
@@ -55,17 +61,17 @@ object OtaBundleLoader {
                 continue
             }
 
-            var hash: String? = null
+            // bundle.hash is written last when staging, so a slot without it is incomplete.
             val hashFile = File(context.filesDir, "$OTA_DIR/$slot/bundle.hash")
-            if (hashFile.exists()) {
-                hash = hashFile.readText().trim()
-                val isBlacklisted = prefs.getBoolean("$KEY_BLACKLISTED_PREFIX$hash", false)
-                if (isBlacklisted) {
-                    continue
-                }
+            if (!hashFile.exists()) {
+                continue
+            }
+            val hash = hashFile.readText().trim()
+            if (hash.isEmpty() || prefs.getBoolean("$KEY_BLACKLISTED_PREFIX$hash", false)) {
+                continue
             }
 
-            return ResolvedBundle(bundleFile.absolutePath, hash)
+            return ResolvedBundle(bundleFile.absolutePath, hash, slot)
         }
 
         return null

@@ -1,6 +1,8 @@
 export interface RunningBundleInfo {
   /** Hash of the OTA bundle this process booted, or null when running the embedded bundle. */
   hash: string | null;
+  /** Slot directory name (e.g. slot_a) of that bundle, or null for the embedded bundle. */
+  slot?: string | null;
   /** Whether that bundle already survived a boot guard window on an earlier launch. */
   stable: boolean;
 }
@@ -19,6 +21,7 @@ export interface NativeOtaModuleLike {
   getActiveSlot?: () => Promise<string | null> | string | null;
   switchActiveSlot?: (newSlot: string) => Promise<boolean> | boolean;
   getRollbackSlot?: () => Promise<string | null> | string | null;
+  deleteBundlePath?: (relativePath: string) => Promise<boolean> | boolean;
   unzipBundleFile?: (zipRelativePath: string, targetSlotDir: string) => Promise<boolean> | boolean;
 }
 
@@ -147,6 +150,15 @@ export async function nativeBundleFileExists(path: string): Promise<boolean> {
   const mod = getNativeOtaModule();
   if (mod && typeof mod.bundleFileExists === 'function') {
     return await mod.bundleFileExists(path);
+  }
+  return false;
+}
+
+export async function nativeDeleteBundlePath(path: string): Promise<boolean> {
+  const mod = getNativeOtaModule();
+  if (mod && typeof mod.deleteBundlePath === 'function') {
+    const res = await mod.deleteBundlePath(path);
+    return res !== false;
   }
   return false;
 }

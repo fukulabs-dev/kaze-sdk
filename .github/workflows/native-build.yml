@@ -1,0 +1,141 @@
+name: Native Build
+
+# Builds a fresh React Native app with the packed SDK on Android and iOS, so native compile errors
+# and template changes the Expo plugin can't patch fail here instead of in users' apps.
+on:
+  push:
+    paths:
+      - 'android/**'
+      - 'ios/**'
+      - 'plugin/**'
+      - 'src/**'
+      - 'kaze-sdk.podspec'
+      - 'package.json'
+      - 'scripts/ci/**'
+      - '.github/workflows/native-build.yml'
+  pull_request:
+    paths:
+      - 'android/**'
+      - 'ios/**'
+      - 'plugin/**'
+      - 'src/**'
+      - 'kaze-sdk.podspec'
+      - 'package.json'
+      - 'scripts/ci/**'
+      - '.github/workflows/native-build.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: native-build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  RN_VERSION: '0.88.0'
+  APP_NAME: KazeTest
+
+jobs:
+  android:
+    name: Android release build
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'pnpm'
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Build and pack SDK
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+          npm pack --pack-destination "$RUNNER_TEMP"
+
+      - name: Create test app
+        run: |
+          npx --yes @react-native-community/cli@latest init "$APP_NAME" \
+            --version "$RN_VERSION" --skip-git-init --install-pods false --pm npm \
+            --directory "$RUNNER_TEMP/$APP_NAME"
+          cd "$RUNNER_TEMP/$APP_NAME"
+          npm install "$RUNNER_TEMP"/fukulabs-kaze-sdk-*.tgz
+
+      - name: Wire SDK into test app
+        run: node scripts/ci/wire-test-app.mjs "$RUNNER_TEMP/$APP_NAME" android
+
+      - name: Assemble release APK
+        working-directory: ${{ runner.temp }}/${{ env.APP_NAME }}/android
+        run: ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a --no-daemon --console=plain
+
+  ios:
+    name: iOS release build
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'pnpm'
+
+      - name: Build and pack SDK
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+          npm pack --pack-destination "$RUNNER_TEMP"
+
+      - name: Create test app
+        run: |
+          npx --yes @react-native-community/cli@latest init "$APP_NAME" \
+            --version "$RN_VERSION" --skip-git-init --install-pods false --pm npm \
+            --directory "$RUNNER_TEMP/$APP_NAME"
+          cd "$RUNNER_TEMP/$APP_NAME"
+          npm install "$RUNNER_TEMP"/fukulabs-kaze-sdk-*.tgz
+
+      - name: Wire SDK into test app
+        run: node scripts/ci/wire-test-app.mjs "$RUNNER_TEMP/$APP_NAME" ios
+
+      - name: Install pods
+        working-directory: ${{ runner.temp }}/${{ env.APP_NAME }}
+        run: |
+          bundle install
+          cd ios && bundle exec pod install
+
+      # Release config compiles the `#if !DEBUG` OTA paths and runs the JS bundling build phase.
+      - name: Build for iOS Simulator (Release)
+        working-directory: ${{ runner.temp }}/${{ env.APP_NAME }}/ios
+        run: |
+          if ! xcodebuild \
+            -workspace "$APP_NAME.xcworkspace" \
+            -scheme "$APP_NAME" \
+            -configuration Release \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            build > "$RUNNER_TEMP/xcodebuild.log" 2>&1; then
+            grep -E 'error:|\*\* BUILD FAILED' "$RUNNER_TEMP/xcodebuild.log" | head -50
+            exit 1
+          fi
+          grep -iE 'warning: .*(kaze|Ota)' "$RUNNER_TEMP/xcodebuild.log" | head -20 || true
+          tail -3 "$RUNNER_TEMP/xcodebuild.log"
+
+      - name: Upload xcodebuild log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: ${{ runner.temp }}/xcodebuild.log
