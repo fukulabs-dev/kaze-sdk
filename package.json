@@ -1,6 +1,6 @@
 {
   "name": "@fukulabs/kaze-sdk",
-  "version": "0.1.0-beta.2",
+  "version": "0.1.0-beta.3",
   "description": "Kaze: React Native Client SDK for Over-The-Air updates by fukulabs.dev",
   "license": "MIT",
   "homepage": "https://github.com/fukulabs-dev/kaze-sdk#readme",
