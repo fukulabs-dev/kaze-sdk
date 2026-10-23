@@ -15,6 +15,7 @@ export interface NativeKazeModuleLike {
   isBundleBlacklisted?: (hash: string) => Promise<boolean> | boolean;
   setBundleStable?: (hash: string) => void;
   clearBlacklist?: () => void;
+  setBootVerificationEnabled?: (enabled: boolean) => void;
   writeBundleFile?: (path: string, content: string, isBase64?: boolean) => Promise<boolean> | boolean;
   readBundleFile?: (path: string) => Promise<string | null> | string | null;
   bundleFileExists?: (path: string) => Promise<boolean> | boolean;
@@ -119,6 +120,17 @@ export function setNativeBundleStable(hash: string): void {
   const mod = getNativeKazeModule();
   if (mod && typeof mod.setBundleStable === 'function') {
     mod.setBundleStable(hash);
+  }
+}
+
+/**
+ * Lets the native loader roll back a bundle that boots twice without being marked stable, which
+ * catches crashes the JS guard never sees. Only safe while the guard is marking bundles stable.
+ */
+export function setNativeBootVerificationEnabled(enabled: boolean): void {
+  const mod = getNativeKazeModule();
+  if (mod && typeof mod.setBootVerificationEnabled === 'function') {
+    mod.setBootVerificationEnabled(enabled);
   }
 }
 

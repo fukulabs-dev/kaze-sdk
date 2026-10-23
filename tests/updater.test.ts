@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { verifyBundleChecksum, checkUpdate, downloadBundle, reportUpdateStatus, computeSha256 } from '../src/updater';
+import {
+  verifyBundleChecksum,
+  checkUpdate,
+  downloadBundle,
+  reportUpdateStatus,
+  computeSha256,
+  TimeoutError,
+} from '../src/updater';
 import { vi } from 'vitest';
 
 describe('Bundle Checksum Verification & Pure SHA-256', () => {
@@ -79,5 +86,84 @@ describe('Bundle Checksum Verification & Pure SHA-256', () => {
         method: 'POST',
       })
     );
+  });
+});
+
+describe('Network timeouts and download retries', () => {
+  const okResponse = (bytes: Uint8Array) => ({
+    ok: true,
+    headers: { get: () => null },
+    arrayBuffer: async () => bytes.buffer,
+  });
+
+  // Never settles unless the request is aborted, like a server that accepted the connection and went quiet.
+  const hangingFetch = () =>
+    vi.fn((_url: string, init?: RequestInit) => {
+      return new Promise((_, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+      });
+    });
+
+  const request = { appId: 'my-app', platform: 'android' as const, runtimeVersion: '1.0.0' };
+
+  it('times out a check that never responds and aborts the request', async () => {
+    const fetchMock = hangingFetch();
+    await expect(
+      checkUpdate('https://ota.example.com', request, fetchMock as unknown as typeof fetch, { timeoutMs: 20 })
+    ).rejects.toThrow(TimeoutError);
+    const signal = fetchMock.mock.calls[0][1]?.signal;
+    expect(signal?.aborted).toBe(true);
+  });
+
+  it('times out even when fetch ignores the abort signal', async () => {
+    const fetchMock = vi.fn(() => new Promise(() => {}));
+    await expect(
+      reportUpdateStatus(
+        'https://ota.example.com',
+        { appId: 'my-app', releaseId: 'rel_1', status: 'staged' },
+        fetchMock as unknown as typeof fetch,
+        { timeoutMs: 20 }
+      )
+    ).rejects.toThrow('Report update status timed out after 20 ms');
+  });
+
+  it('retries a download after a 503 and a timeout, then succeeds', async () => {
+    const bytes = new TextEncoder().encode('bundle');
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, status: 503 })
+      .mockImplementationOnce(() => new Promise(() => {}))
+      .mockResolvedValueOnce(okResponse(bytes));
+
+    const result = await downloadBundle('https://cdn.example.com/b.zip', undefined, fetchMock as unknown as typeof fetch, {
+      timeoutMs: 20,
+      retries: 2,
+      retryDelayMs: 1,
+    });
+
+    expect(result).toEqual(bytes);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not retry a 404', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 404 });
+    await expect(
+      downloadBundle('https://cdn.example.com/b.zip', undefined, fetchMock as unknown as typeof fetch, {
+        retries: 2,
+        retryDelayMs: 1,
+      })
+    ).rejects.toThrow('status 404');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('gives up after the configured number of retries', async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new TypeError('Network request failed'));
+    await expect(
+      downloadBundle('https://cdn.example.com/b.zip', undefined, fetchMock as unknown as typeof fetch, {
+        retries: 2,
+        retryDelayMs: 1,
+      })
+    ).rejects.toThrow('Network request failed');
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 });

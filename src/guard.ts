@@ -1,4 +1,9 @@
-import { getNativeRunningBundleInfo, setNativeBundleBlacklisted, setNativeBundleStable } from './native';
+import {
+  getNativeRunningBundleInfo,
+  setNativeBootVerificationEnabled,
+  setNativeBundleBlacklisted,
+  setNativeBundleStable,
+} from './native';
 import { NativeStorage } from './storage';
 
 export interface KeyValueStorage {
@@ -101,7 +106,8 @@ export function attachGlobalErrorHandler(guard: BootGuard, errorUtils?: ErrorUti
 export interface InitBootGuardOptions extends Partial<BootGuardOptions> {
   /**
    * Hash of the bundle to guard. Defaults to the OTA bundle the native loader booted, when that
-   * bundle has not yet been marked stable. Pass null to skip guarding.
+   * bundle has not yet been marked stable. Pass null to skip guarding, which also turns off the
+   * native check for bundles that crash before the guard runs.
    */
   activeHash?: string | null;
   attachHandler?: boolean;
@@ -117,6 +123,10 @@ export function initBootGuard(options: InitBootGuardOptions = {}): BootGuard {
   if (options.attachHandler !== false) {
     attachGlobalErrorHandler(guard, options.errorUtils);
   }
+  // With the guard marking bundles stable, the native loader can also roll back bundles that die
+  // before reaching it (native crash, out-of-memory kill, error before initBootGuard).
+  setNativeBootVerificationEnabled(options.activeHash !== null);
+
   let activeHash = options.activeHash;
   if (activeHash === undefined) {
     const running = getNativeRunningBundleInfo();
@@ -124,6 +134,10 @@ export function initBootGuard(options: InitBootGuardOptions = {}): BootGuard {
   }
   if (activeHash) {
     guard.onBundleBoot(activeHash);
+  } else {
+    // With a persistent storage, a session killed inside its window leaves this behind; a fatal
+    // error now would otherwise blacklist that bundle even though it is not running.
+    storage.remove('ota_testing_bundle');
   }
   return guard;
 }

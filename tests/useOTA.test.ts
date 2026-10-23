@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createOTAController } from '../src/useOTA';
+import { createTestZip } from './helpers/zip';
 import { computeSha256 } from '../src/sha256';
 import { MemoryFileSystemAdapter } from '../src/staging';
 
@@ -60,7 +61,7 @@ describe('useOTA & OTAController State Machine', () => {
   });
 
   it('downloads and stages by default when autoApply is not set', async () => {
-    const bundleBytes = new TextEncoder().encode('console.log("default autoApply");');
+    const bundleBytes = createTestZip({ 'index.android.bundle': 'console.log("default autoApply");' });
     const mockManifest = {
       id: 'rel_default',
       appId: 'test-app',
@@ -119,9 +120,30 @@ describe('useOTA & OTAController State Machine', () => {
     expect(result).toBeNull();
     expect(controller.getState().error?.message).toBe('Network offline');
   });
+
+  it('leaves the checking state when the server never responds', async () => {
+    const fetchMock = vi.fn(() => new Promise(() => {}));
+
+    const controller = createOTAController(
+      {
+        serverUrl: 'https://ota.example.com',
+        appId: 'test-app',
+        platform: 'android',
+        runtimeVersion: '1.0.0',
+        requestTimeoutMs: 20,
+      },
+      fetchMock as unknown as typeof fetch
+    );
+
+    const result = await controller.check();
+    expect(result).toBeNull();
+    expect(controller.getState().status).toBe('error');
+    expect(controller.getState().isChecking).toBe(false);
+    expect(controller.getState().error?.message).toContain('timed out');
+  });
   it('executes downloadAndStage and transitions to ready state', async () => {
     const bundleContent = 'console.log("new bundle ready");';
-    const bundleBytes = new TextEncoder().encode(bundleContent);
+    const bundleBytes = createTestZip({ 'index.android.bundle': bundleContent });
     const bundleHash = computeSha256(bundleBytes);
 
     const mockManifest = {
@@ -228,7 +250,7 @@ describe('useOTA & OTAController State Machine', () => {
 
   it('automatically reports status staged upon successful staging', async () => {
     const bundleContent = 'console.log("report test bundle");';
-    const bundleBytes = new TextEncoder().encode(bundleContent);
+    const bundleBytes = createTestZip({ 'index.android.bundle': bundleContent });
     const bundleHash = computeSha256(bundleBytes);
 
     const mockManifest = {
@@ -357,7 +379,7 @@ describe('useOTA & OTAController State Machine', () => {
 
   it('does not report status when reportStatus is set to false', async () => {
     const bundleContent = 'console.log("no report bundle");';
-    const bundleBytes = new TextEncoder().encode(bundleContent);
+    const bundleBytes = createTestZip({ 'index.android.bundle': bundleContent });
     const bundleHash = computeSha256(bundleBytes);
 
     const mockManifest = {

@@ -8,7 +8,7 @@ import {
   getDefaultFileSystemAdapter,
   type FileSystemAdapter,
 } from './staging';
-import { getNativeRunningBundleInfo, restartApp } from './native';
+import { getNativeRunningBundleInfo, isNativeBundleBlacklisted, restartApp } from './native';
 
 function resolvePlatform(platform?: 'android' | 'ios'): 'android' | 'ios' {
   if (platform) return platform;
@@ -46,6 +46,12 @@ export interface UseOTAOptions {
    */
   autoApply?: 'next-restart' | 'immediate' | 'manual';
   reportStatus?: boolean;
+  /** Timeout for update checks and status reports, in milliseconds. 0 disables it. Default 15000. */
+  requestTimeoutMs?: number;
+  /** Timeout for one bundle download attempt, in milliseconds. 0 disables it. Default 120000. */
+  downloadTimeoutMs?: number;
+  /** Extra download attempts after a network error, timeout, or 5xx/408/429 response. Default 2. */
+  downloadRetries?: number;
   fileSystem?: FileSystemAdapter;
   onUpdateAvailable?: (manifest: ReleaseManifest) => void;
   onDownloadProgress?: (progress: number) => void;
@@ -94,6 +100,7 @@ export function createOTAController(
   // Bundle staged by this controller and waiting for the next launch; not downloaded again.
   let stagedHash: string | null = null;
   let inFlight: { hash: string; promise: Promise<boolean> } | null = null;
+  const requestOptions = { timeoutMs: options.requestTimeoutMs };
 
   const updateState = (partial: Partial<OTAState>) => {
     state = { ...state, ...partial };
@@ -129,7 +136,6 @@ export function createOTAController(
   };
 
   const runDownloadAndStage = async (manifestToDownload: ReleaseManifest, targetHash: string): Promise<boolean> => {
-
     updateState({
       status: 'downloading',
       isDownloading: true,
@@ -138,6 +144,12 @@ export function createOTAController(
     });
 
     try {
+      if (await isNativeBundleBlacklisted(manifestToDownload.bundleHash)) {
+        throw new Error(
+          `Bundle ${manifestToDownload.bundleHash} was rolled back on this device and will not be installed again`
+        );
+      }
+
       const resolvedUrl =
         manifestToDownload.bundleUrl.startsWith('http://') ||
         manifestToDownload.bundleUrl.startsWith('https://')
@@ -150,7 +162,8 @@ export function createOTAController(
           updateState({ progress: percent });
           options.onDownloadProgress?.(percent);
         },
-        fetchFn
+        fetchFn,
+        { timeoutMs: options.downloadTimeoutMs, retries: options.downloadRetries }
       );
 
       const isValid = verifyBundleChecksum(bundleBytes, manifestToDownload.bundleHash);
@@ -164,6 +177,7 @@ export function createOTAController(
       const stageResult = await stageBundle({
         platform,
         bundleHash: manifestToDownload.bundleHash,
+        releaseId: manifestToDownload.id,
         files,
         fileSystem: fs,
       });
@@ -194,7 +208,8 @@ export function createOTAController(
             deviceId: options.deviceId,
             clientUuid: options.clientUuid,
           },
-          fetchFn
+          fetchFn,
+          requestOptions
         ).catch(() => {});
       }
 
@@ -226,15 +241,82 @@ export function createOTAController(
             deviceId: options.deviceId,
             clientUuid: options.clientUuid,
           },
-          fetchFn
+          fetchFn,
+          requestOptions
         ).catch(() => {});
       }
       return false;
     }
   };
 
+  // Reports what happened on earlier launches that the server has not heard about yet: a bundle the
+  // boot guard rolled back (the process dies right after blacklisting it, so this is the first
+  // chance), and the running bundle once the guard has marked it stable. A marker file in the slot
+  // keeps each report from being sent twice. Runs before the check so the rolled-back slot is
+  // reported before a new download overwrites it.
+  const reportOutcome = async (slot: string, hash: string, status: 'active' | 'rolled_back'): Promise<void> => {
+    const marker = `ota/${slot}/${status}.reported`;
+    if (await fs.exists(marker)) {
+      return;
+    }
+    const releaseId = (await fs.readFile(`ota/${slot}/release.id`))?.trim();
+    if (!releaseId) {
+      return;
+    }
+    await reportUpdateStatus(
+      options.serverUrl,
+      {
+        appId: options.appId,
+        releaseId,
+        status,
+        platform,
+        runtimeVersion: options.runtimeVersion,
+        bundleHash: hash,
+        reason: status === 'rolled_back' ? 'Crashed during startup and was rolled back' : undefined,
+        deviceId: options.deviceId,
+        clientUuid: options.clientUuid,
+      },
+      fetchFn,
+      requestOptions
+    );
+    await fs.writeFile(marker, new Date().toISOString());
+  };
+
+  let reportingOutcomes: Promise<void> | null = null;
+  const reportOutcomes = (): Promise<void> => {
+    if (options.reportStatus === false) {
+      return Promise.resolve();
+    }
+    reportingOutcomes ??= (async () => {
+      const running = getNativeRunningBundleInfo();
+      for (const slot of ['slot_a', 'slot_b']) {
+        try {
+          const hash = (await fs.readFile(`ota/${slot}/bundle.hash`))?.trim();
+          if (!hash) continue;
+          if (running?.hash === hash && running.slot === slot) {
+            if (running.stable) {
+              await reportOutcome(slot, hash, 'active');
+            }
+          } else if (await isNativeBundleBlacklisted(hash)) {
+            await reportOutcome(slot, hash, 'rolled_back');
+          }
+        } catch {
+          // Retried on the next check.
+        }
+      }
+    })().finally(() => {
+      reportingOutcomes = null;
+    });
+    return reportingOutcomes;
+  };
+
+  // A check can run while a download is in progress (e.g. checkOnResume); the status keeps showing
+  // the download until it finishes, which then sets 'ready' or 'error' itself.
+  const statusAfterCheck = (status: OTAStatus): OTAStatus => (state.isDownloading ? 'downloading' : status);
+
   const check = async (): Promise<ReleaseManifest | null> => {
-    updateState({ status: 'checking', isChecking: true, error: null });
+    updateState({ status: statusAfterCheck('checking'), isChecking: true, error: null });
+    await reportOutcomes().catch(() => {});
     try {
       const data = await checkUpdate(
         options.serverUrl,
@@ -247,14 +329,15 @@ export function createOTAController(
           deviceId: options.deviceId,
           clientUuid: options.clientUuid,
         },
-        fetchFn
+        fetchFn,
+        requestOptions
       );
 
       const offeredHash = data.manifest?.bundleHash.toLowerCase();
       if (data.updateAvailable && data.manifest && offeredHash === stagedHash) {
         // Already downloaded; it activates on the next launch.
         updateState({
-          status: 'ready',
+          status: statusAfterCheck('ready'),
           isChecking: false,
           updateAvailable: true,
           manifest: data.manifest,
@@ -262,9 +345,13 @@ export function createOTAController(
         return data.manifest;
       }
 
-      if (data.updateAvailable && data.manifest && offeredHash !== runningHash?.toLowerCase()) {
+      // This device already rolled the bundle back and the native loader will never boot it again.
+      const rolledBack =
+        data.updateAvailable && data.manifest ? await isNativeBundleBlacklisted(data.manifest.bundleHash) : false;
+
+      if (data.updateAvailable && data.manifest && offeredHash !== runningHash?.toLowerCase() && !rolledBack) {
         updateState({
-          status: 'idle',
+          status: statusAfterCheck('idle'),
           isChecking: false,
           updateAvailable: true,
           manifest: data.manifest,
@@ -279,7 +366,7 @@ export function createOTAController(
       }
 
       updateState({
-        status: 'idle',
+        status: statusAfterCheck('idle'),
         isChecking: false,
         updateAvailable: false,
         manifest: null,
@@ -288,7 +375,7 @@ export function createOTAController(
     } catch (err) {
       const errorObj = err instanceof Error ? err : new Error(String(err));
       updateState({
-        status: 'error',
+        status: statusAfterCheck('error'),
         isChecking: false,
         updateAvailable: false,
         error: errorObj,

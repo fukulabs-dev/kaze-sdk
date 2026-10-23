@@ -16,7 +16,7 @@ function migrateLegacyNames(contents: string): string {
 
 export function modifyMainApplication(source: string): string {
   const contents = migrateLegacyNames(source);
-  if (contents.includes('KazeBundleLoader.getJSBundleFile')) {
+  if (hasAndroidLoader(contents)) {
     return contents;
   }
 
@@ -84,10 +84,7 @@ function swiftOtaOverride(indent: string, signature: string, fallbackCall: strin
 
 export function modifyAppDelegate(source: string): string {
   const contents = migrateLegacyNames(source);
-  if (
-    contents.includes('KazeBundleLoader.getJSBundleFile') ||
-    contents.includes('KazeBundleLoader.bundleURL')
-  ) {
+  if (hasIOSLoader(contents)) {
     return contents;
   }
 
@@ -132,56 +129,111 @@ export function modifyAppDelegate(source: string): string {
   return updated;
 }
 
-const withOTA: ConfigPlugin = (config) => {
-  let modifiedConfig = {
+const PLUGIN_NAME = '@fukulabs/kaze-sdk';
+
+interface ExpoPluginsLike {
+  WarningAggregator?: {
+    addWarningAndroid?: (property: string, text: string) => void;
+    addWarningIOS?: (property: string, text: string) => void;
+  };
+}
+
+// Shown in the `npx expo prebuild` summary; console otherwise.
+function warn(expoPlugins: ExpoPluginsLike, platform: 'android' | 'ios', text: string): void {
+  const aggregator = expoPlugins.WarningAggregator;
+  const add = platform === 'android' ? aggregator?.addWarningAndroid : aggregator?.addWarningIOS;
+  if (typeof add === 'function') {
+    add(PLUGIN_NAME, text);
+  } else {
+    console.warn(`[${PLUGIN_NAME}] ${text}`);
+  }
+}
+
+export function hasAndroidLoader(contents: string): boolean {
+  return contents.includes('KazeBundleLoader.getJSBundleFile');
+}
+
+export function hasIOSLoader(contents: string): boolean {
+  return contents.includes('KazeBundleLoader.getJSBundleFile') || contents.includes('KazeBundleLoader.bundleURL');
+}
+
+const NOT_PATCHED =
+  'could not be patched to load OTA bundles, so updates will download but never run. ' +
+  'Add the Kaze loader by hand as described in the README (Bare React Native setup), or open an issue with the file attached.';
+
+function isExpoUpdatesInstalled(projectRoot: string | undefined): boolean {
+  try {
+    require.resolve('expo-updates/package.json', { paths: [projectRoot ?? process.cwd()] });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+type ModConfig = { modResults?: { contents?: string } };
+type WithMod = (config: ExpoConfigLike, action: (modConfig: ModConfig) => ModConfig) => ExpoConfigLike;
+
+/** The parts of @expo/config-plugins the plugin uses; passed in so tests can supply a fake. */
+export interface ExpoConfigPlugins extends ExpoPluginsLike {
+  withMainApplication?: WithMod;
+  withAppDelegate?: WithMod;
+}
+
+export function applyOTAPlugin(config: ExpoConfigLike, expoPlugins: ExpoConfigPlugins | null): ExpoConfigLike {
+  let modifiedConfig: ExpoConfigLike = {
     ...config,
     extra: {
       ...config.extra,
       otaEnabled: true,
     },
   };
+  if (!expoPlugins) {
+    return modifiedConfig;
+  }
 
-  try {
-    const expoPlugins = require('@expo/config-plugins');
-    if (expoPlugins && typeof expoPlugins === 'object') {
-      if (
-        'withMainApplication' in expoPlugins &&
-        typeof expoPlugins.withMainApplication === 'function'
-      ) {
-        modifiedConfig = expoPlugins.withMainApplication(
-          modifiedConfig,
-          (modConfig: { modResults?: { contents?: string } }) => {
-            if (modConfig.modResults?.contents) {
-              modConfig.modResults.contents = modifyMainApplication(
-                modConfig.modResults.contents
-              );
-            }
-            return modConfig;
-          }
-        );
+  const projectRoot = (config._internal as { projectRoot?: string } | undefined)?.projectRoot;
+  if (isExpoUpdatesInstalled(projectRoot)) {
+    warn(
+      expoPlugins,
+      'android',
+      'expo-updates is installed. It replaces the JS bundle too and can take precedence over Kaze; remove it or set updates.enabled to false.'
+    );
+  }
+
+  if (typeof expoPlugins.withMainApplication === 'function') {
+    modifiedConfig = expoPlugins.withMainApplication(modifiedConfig, (modConfig) => {
+      if (modConfig.modResults?.contents) {
+        modConfig.modResults.contents = modifyMainApplication(modConfig.modResults.contents);
+        if (!hasAndroidLoader(modConfig.modResults.contents)) {
+          warn(expoPlugins, 'android', `MainApplication ${NOT_PATCHED}`);
+        }
       }
-      if (
-        'withAppDelegate' in expoPlugins &&
-        typeof expoPlugins.withAppDelegate === 'function'
-      ) {
-        modifiedConfig = expoPlugins.withAppDelegate(
-          modifiedConfig,
-          (modConfig: { modResults?: { contents?: string } }) => {
-            if (modConfig.modResults?.contents) {
-              modConfig.modResults.contents = modifyAppDelegate(
-                modConfig.modResults.contents
-              );
-            }
-            return modConfig;
-          }
-        );
+      return modConfig;
+    });
+  }
+  if (typeof expoPlugins.withAppDelegate === 'function') {
+    modifiedConfig = expoPlugins.withAppDelegate(modifiedConfig, (modConfig) => {
+      if (modConfig.modResults?.contents) {
+        modConfig.modResults.contents = modifyAppDelegate(modConfig.modResults.contents);
+        if (!hasIOSLoader(modConfig.modResults.contents)) {
+          warn(expoPlugins, 'ios', `AppDelegate ${NOT_PATCHED}`);
+        }
       }
-    }
-  } catch {
-    // @expo/config-plugins not installed; fallback config returned
+      return modConfig;
+    });
   }
 
   return modifiedConfig;
+}
+
+const withOTA: ConfigPlugin = (config) => {
+  let expoPlugins: ExpoConfigPlugins | null = null;
+  try {
+    expoPlugins = require('@expo/config-plugins');
+  } catch {
+    // @expo/config-plugins not installed; fallback config returned
+  }
+  return applyOTAPlugin(config, expoPlugins);
 };
 
 export default withOTA;

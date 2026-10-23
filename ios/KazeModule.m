@@ -17,6 +17,8 @@ RCT_EXTERN_METHOD(setBundleStable:(NSString *)hash)
 
 RCT_EXTERN_METHOD(clearBlacklist)
 
+RCT_EXTERN_METHOD(setBootVerificationEnabled:(BOOL)enabled)
+
 RCT_EXTERN_METHOD(restartApp)
 
 RCT_EXTERN_METHOD(writeBundleFile:(NSString *)relativePath

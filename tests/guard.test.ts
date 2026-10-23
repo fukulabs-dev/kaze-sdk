@@ -112,6 +112,50 @@ describe('BootGuard Rollback Safeguard', () => {
     expect(embeddedGuard.getTestingBundle()).toBeNull();
   });
 
+  it('clears a testing marker left by an earlier session when nothing is guarded', () => {
+    mockStorage['ota_testing_bundle'] = 'killed_session_hash';
+    setNativeKazeModuleForTesting({
+      getRunningBundleInfo: () => ({ hash: null, stable: true }),
+      setBundleBlacklisted: vi.fn(() => true),
+    });
+    let handler: ((error: Error, isFatal?: boolean) => void) | undefined;
+    const errorUtils: ErrorUtilsLike = {
+      getGlobalHandler: () => undefined,
+      setGlobalHandler: (h) => {
+        handler = h;
+      },
+    };
+
+    const guard = initBootGuard({ storage: storageAdapter, errorUtils });
+    handler!(new Error('crash long after boot'), true);
+
+    expect(guard.getTestingBundle()).toBeNull();
+    expect(guard.isBundleBlacklisted('killed_session_hash')).toBe(false);
+  });
+
+  it('turns on native boot verification when guarding automatically or a given hash', () => {
+    const setBootVerificationEnabled = vi.fn();
+    setNativeKazeModuleForTesting({
+      getRunningBundleInfo: () => ({ hash: null, stable: true }),
+      setBootVerificationEnabled,
+    });
+
+    initBootGuard({ storage: storageAdapter, attachHandler: false });
+    initBootGuard({ storage: storageAdapter, attachHandler: false, activeHash: 'manual_hash' });
+
+    expect(setBootVerificationEnabled.mock.calls).toEqual([[true], [true]]);
+  });
+
+  it('turns off native boot verification when guarding is skipped', () => {
+    const setBootVerificationEnabled = vi.fn();
+    setNativeKazeModuleForTesting({ setBootVerificationEnabled });
+
+    // Nothing marks bundles stable without the guard, so native must not roll them back.
+    initBootGuard({ storage: storageAdapter, attachHandler: false, activeHash: null });
+
+    expect(setBootVerificationEnabled).toHaveBeenCalledWith(false);
+  });
+
   it('unsubscribes and restores original handler when cleanup callback is called', () => {
     const originalHandler = vi.fn();
     let installedHandler: ((error: Error, isFatal?: boolean) => void) | undefined = originalHandler;

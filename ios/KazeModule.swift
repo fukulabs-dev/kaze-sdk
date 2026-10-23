@@ -34,6 +34,12 @@ public class KazeModule: NSObject {
 
     @objc public func setBundleStable(_ hash: String) {
         UserDefaults.standard.set(true, forKey: "\(stablePrefix)\(hash)")
+        UserDefaults.standard.removeObject(forKey: "\(KazeBundleLoader.bootAttemptsPrefix)\(hash)")
+        UserDefaults.standard.synchronize()
+    }
+
+    @objc public func setBootVerificationEnabled(_ enabled: Bool) {
+        UserDefaults.standard.set(enabled, forKey: KazeBundleLoader.bootVerificationKey)
         UserDefaults.standard.synchronize()
     }
 
@@ -52,10 +58,10 @@ public class KazeModule: NSObject {
         guard !relativePath.contains("..") else {
             return nil
         }
-        guard let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+        guard let baseDirectory = KazeBundleLoader.baseDirectory else {
             return nil
         }
-        return documentsDirectory.appendingPathComponent(relativePath)
+        return baseDirectory.appendingPathComponent(relativePath)
     }
 
     @objc public func writeBundleFile(_ relativePath: String, content: String, isBase64: Bool, resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {

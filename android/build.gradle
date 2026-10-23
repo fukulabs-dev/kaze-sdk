@@ -1,16 +1,10 @@
-buildscript {
-    ext.safeExtGet = {prop, fallback ->
-        rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback
-    }
-    repositories {
-        google()
-        mavenCentral()
-    }
-    dependencies {
-        classpath("com.android.tools.build:gradle:8.2.1")
-        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.22")
-    }
+// Built only as part of a React Native app, whose root project supplies the Android Gradle plugin,
+// the Kotlin plugin, and the react-android version. Declaring our own versions here would conflict
+// with the app's (e.g. Kotlin 2.x in current templates).
+def safeExtGet(prop, fallback) {
+    rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback
 }
+
 def isNewArchitectureEnabled() {
     return project.hasProperty("newArchEnabled") && project.newArchEnabled == "true"
 }
@@ -23,11 +17,10 @@ if (isNewArchitectureEnabled()) {
 }
 android {
     namespace "dev.fukulabs.kaze"
-    compileSdkVersion safeExtGet('compileSdkVersion', 34)
+    compileSdkVersion safeExtGet('compileSdkVersion', 35)
 
     defaultConfig {
-        minSdkVersion safeExtGet('minSdkVersion', 21)
-        targetSdkVersion safeExtGet('targetSdkVersion', 34)
+        minSdkVersion safeExtGet('minSdkVersion', 24)
         buildConfigField("boolean", "IS_NEW_ARCHITECTURE_ENABLED", isNewArchitectureEnabled().toString())
     }
 
@@ -42,6 +35,6 @@ repositories {
 }
 
 dependencies {
-    implementation("com.facebook.react:react-android:+")
-    implementation("org.jetbrains.kotlin:kotlin-stdlib:1.9.22")
+    // Version comes from the app's React Native Gradle plugin.
+    implementation("com.facebook.react:react-android")
 }
