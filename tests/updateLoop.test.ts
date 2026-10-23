@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { stageBundle, MemoryFileSystemAdapter, NativeFileSystemAdapter } from '../src/staging';
+import { createTestZip } from './helpers/zip';
 import { setNativeKazeModuleForTesting } from '../src/native';
 import { createOTAController } from '../src/useOTA';
 import { checkUpdate } from '../src/updater';
@@ -97,6 +98,21 @@ describe('staging slot selection', () => {
     expect(writes[writes.length - 1]).toBe('ota/slot_a/bundle.hash');
   });
 
+  it('records the release id in the slot before bundle.hash', async () => {
+    const fs = new MemoryFileSystemAdapter();
+    await stageBundle({
+      platform: 'android',
+      bundleHash: 'c'.repeat(64),
+      releaseId: 'rel_7',
+      files: { 'index.android.bundle': 'new' },
+      fileSystem: fs,
+      slot: 'slot_a',
+    });
+
+    expect(fs.files['ota/slot_a/release.id']).toBe('rel_7');
+    expect(Object.keys(fs.files).pop()).toBe('ota/slot_a/bundle.hash');
+  });
+
   it('NativeFileSystemAdapter.remove delegates to native deleteBundlePath', async () => {
     const deleteBundlePath = vi.fn().mockResolvedValue(true);
     setNativeKazeModuleForTesting({ deleteBundlePath });
@@ -129,7 +145,7 @@ describe('update loop', () => {
   });
 
   it('does not download an update again once it is staged', async () => {
-    const bytes = new TextEncoder().encode('console.log("staged once");');
+    const bytes = createTestZip({ 'index.android.bundle': 'console.log("staged once");' });
     const { fetchMock, downloadCount } = makeFetch(makeManifest(bytes), bytes);
 
     const controller = createOTAController(
@@ -150,7 +166,7 @@ describe('update loop', () => {
   });
 
   it('joins a download that is already running for the same bundle', async () => {
-    const bytes = new TextEncoder().encode('console.log("once");');
+    const bytes = createTestZip({ 'index.android.bundle': 'console.log("once");' });
     const manifest = makeManifest(bytes);
     const { fetchMock, downloadCount } = makeFetch(manifest, bytes);
 
@@ -168,6 +184,58 @@ describe('update loop', () => {
     expect(first).toBe(true);
     expect(second).toBe(true);
     expect(downloadCount()).toBe(1);
+  });
+
+  it('keeps showing the download while another check runs', async () => {
+    const bytes = createTestZip({ 'index.android.bundle': 'console.log("slow download");' });
+    const manifest = makeManifest(bytes);
+    let finishDownload!: () => void;
+    const downloadGate = new Promise<void>((resolve) => {
+      finishDownload = resolve;
+    });
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('/api/v1/updates/check')) {
+        return { ok: true, json: async () => ({ updateAvailable: true, manifest }) };
+      }
+      await downloadGate;
+      return { ok: true, headers: { get: () => null }, arrayBuffer: async () => bytes.slice().buffer };
+    });
+
+    const controller = createOTAController(
+      { serverUrl: 'https://ota.example.com', appId: 'test-app', platform: 'android', runtimeVersion: '1.0.0', reportStatus: false },
+      fetchMock as unknown as typeof fetch,
+      new MemoryFileSystemAdapter()
+    );
+    await controller.check();
+    await vi.waitFor(() => expect(controller.getState().status).toBe('downloading'));
+
+    // e.g. checkOnResume firing mid-download
+    const statuses: string[] = [];
+    controller.subscribe((state) => statuses.push(state.status));
+    await controller.check();
+    expect(statuses.length).toBeGreaterThan(0);
+    expect(statuses.every((status) => status === 'downloading')).toBe(true);
+    expect(controller.getState().isChecking).toBe(false);
+
+    finishDownload();
+    await vi.waitFor(() => expect(controller.getState().status).toBe('ready'));
+  });
+
+  it('does not stage a bare JS download, which would lose every bundled image', async () => {
+    const bytes = new TextEncoder().encode('console.log("no assets");');
+    const { fetchMock } = makeFetch(makeManifest(bytes), bytes);
+    const fs = new MemoryFileSystemAdapter();
+
+    const controller = createOTAController(
+      { serverUrl: 'https://ota.example.com', appId: 'test-app', platform: 'android', runtimeVersion: '1.0.0', reportStatus: false },
+      fetchMock as unknown as typeof fetch,
+      fs
+    );
+    await controller.check();
+    await vi.waitFor(() => expect(controller.getState().status).toBe('error'));
+
+    expect(controller.getState().error?.message).toContain('not a zip archive');
+    expect(Object.keys(fs.files)).toHaveLength(0);
   });
 
   it('ignores an offered bundle that is already running', async () => {
@@ -225,5 +293,160 @@ describe('check response validation', () => {
     };
     const res = await checkUpdate('https://ota.example.com', request, respond(body));
     expect(res.manifest?.bundleUrl).toBe('/bundles/x.zip');
+  });
+});
+
+describe('rolled-back bundles', () => {
+  beforeEach(() => {
+    setNativeKazeModuleForTesting(null);
+  });
+
+  it('does not download a bundle this device already rolled back', async () => {
+    const bytes = new TextEncoder().encode('console.log("crashes on boot");');
+    const manifest = makeManifest(bytes);
+    setNativeKazeModuleForTesting({
+      getRunningBundleInfo: () => ({ hash: RUNNING_HASH, slot: 'slot_a', stable: true }),
+      isBundleBlacklisted: (hash: string) => hash === manifest.bundleHash,
+    });
+    const { fetchMock, downloadCount } = makeFetch(manifest, bytes);
+    const onUpdateAvailable = vi.fn();
+
+    // Every launch creates a new controller; none of them may pick the bundle up again.
+    for (let launch = 0; launch < 3; launch++) {
+      const controller = createOTAController(
+        { serverUrl: 'https://ota.example.com', appId: 'test-app', platform: 'android', runtimeVersion: '1.0.0', onUpdateAvailable },
+        fetchMock as unknown as typeof fetch,
+        new MemoryFileSystemAdapter()
+      );
+      expect(await controller.check()).toBeNull();
+      expect(controller.getState()).toMatchObject({ status: 'idle', updateAvailable: false, manifest: null });
+    }
+
+    expect(downloadCount()).toBe(0);
+    expect(onUpdateAvailable).not.toHaveBeenCalled();
+  });
+
+  it('refuses a manual downloadAndStage of a rolled-back bundle', async () => {
+    const bytes = new TextEncoder().encode('console.log("crashes on boot");');
+    const manifest = makeManifest(bytes);
+    setNativeKazeModuleForTesting({ isBundleBlacklisted: () => true });
+    const { fetchMock, downloadCount } = makeFetch(manifest, bytes);
+
+    const controller = createOTAController(
+      { serverUrl: 'https://ota.example.com', appId: 'test-app', platform: 'android', runtimeVersion: '1.0.0', reportStatus: false },
+      fetchMock as unknown as typeof fetch,
+      new MemoryFileSystemAdapter()
+    );
+
+    expect(await controller.downloadAndStage(manifest)).toBe(false);
+    expect(controller.getState().error?.message).toContain('rolled back on this device');
+    expect(downloadCount()).toBe(0);
+  });
+});
+
+describe('outcome reports', () => {
+  const BAD_HASH = 'b'.repeat(64);
+
+  function makeReportingFetch() {
+    const reports: Array<Record<string, unknown>> = [];
+    const fetchMock = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url.includes('/api/v1/updates/report')) {
+        reports.push(JSON.parse(String(init?.body)));
+        return { ok: true, json: async () => ({ success: true }) };
+      }
+      return { ok: true, json: async () => ({ updateAvailable: false }) };
+    });
+    return { fetchMock, reports };
+  }
+
+  function slotFiles(slot: string, hash: string, releaseId: string) {
+    return {
+      [`ota/${slot}/index.android.bundle`]: 'js',
+      [`ota/${slot}/release.id`]: releaseId,
+      [`ota/${slot}/bundle.hash`]: hash,
+    };
+  }
+
+  const options = { serverUrl: 'https://ota.example.com', appId: 'test-app', platform: 'android' as const, runtimeVersion: '1.0.0' };
+
+  beforeEach(() => {
+    setNativeKazeModuleForTesting(null);
+  });
+
+  it('reports a rolled-back bundle once and the stable running bundle as active once', async () => {
+    setNativeKazeModuleForTesting({
+      // slot_b crashed during its boot window, so the loader fell back to slot_a.
+      getRunningBundleInfo: () => ({ hash: RUNNING_HASH, slot: 'slot_a', stable: true }),
+      isBundleBlacklisted: (hash: string) => hash === BAD_HASH,
+    });
+    const fs = new MemoryFileSystemAdapter();
+    Object.assign(fs.files, slotFiles('slot_a', RUNNING_HASH, 'rel_good'), slotFiles('slot_b', BAD_HASH, 'rel_bad'));
+    const { fetchMock, reports } = makeReportingFetch();
+
+    const controller = createOTAController(options, fetchMock as unknown as typeof fetch, fs);
+    await controller.check();
+    await controller.check();
+    // A later launch must not report again either.
+    await createOTAController(options, fetchMock as unknown as typeof fetch, fs).check();
+
+    expect(reports).toHaveLength(2);
+    expect(reports).toContainEqual(
+      expect.objectContaining({ status: 'active', releaseId: 'rel_good', bundleHash: RUNNING_HASH })
+    );
+    expect(reports).toContainEqual(
+      expect.objectContaining({ status: 'rolled_back', releaseId: 'rel_bad', bundleHash: BAD_HASH })
+    );
+  });
+
+  it('waits until the running bundle is stable before reporting it active', async () => {
+    let stable = false;
+    setNativeKazeModuleForTesting({
+      getRunningBundleInfo: () => ({ hash: RUNNING_HASH, slot: 'slot_a', stable }),
+      isBundleBlacklisted: () => false,
+    });
+    const fs = new MemoryFileSystemAdapter();
+    Object.assign(fs.files, slotFiles('slot_a', RUNNING_HASH, 'rel_new'));
+    const { fetchMock, reports } = makeReportingFetch();
+
+    const controller = createOTAController(options, fetchMock as unknown as typeof fetch, fs);
+    await controller.check();
+    expect(reports).toHaveLength(0);
+
+    // The boot guard window has passed by the time the app resumes and checks again.
+    stable = true;
+    await controller.check();
+    expect(reports).toEqual([expect.objectContaining({ status: 'active', releaseId: 'rel_new' })]);
+  });
+
+  it('retries a failed report on the next check without failing the check', async () => {
+    setNativeKazeModuleForTesting({
+      getRunningBundleInfo: () => ({ hash: null, slot: null, stable: true }),
+      isBundleBlacklisted: (hash: string) => hash === BAD_HASH,
+    });
+    const fs = new MemoryFileSystemAdapter();
+    Object.assign(fs.files, slotFiles('slot_a', BAD_HASH, 'rel_bad'));
+    const { fetchMock, reports } = makeReportingFetch();
+    fetchMock.mockImplementationOnce(async () => ({ ok: false, status: 503 }));
+
+    const controller = createOTAController(options, fetchMock as unknown as typeof fetch, fs);
+    await controller.check();
+    expect(controller.getState().error).toBeNull();
+    expect(reports).toHaveLength(0);
+
+    await controller.check();
+    expect(reports).toEqual([expect.objectContaining({ status: 'rolled_back', releaseId: 'rel_bad' })]);
+  });
+
+  it('sends no outcome reports when reportStatus is false', async () => {
+    setNativeKazeModuleForTesting({
+      getRunningBundleInfo: () => ({ hash: RUNNING_HASH, slot: 'slot_a', stable: true }),
+      isBundleBlacklisted: (hash: string) => hash === BAD_HASH,
+    });
+    const fs = new MemoryFileSystemAdapter();
+    Object.assign(fs.files, slotFiles('slot_a', RUNNING_HASH, 'rel_good'), slotFiles('slot_b', BAD_HASH, 'rel_bad'));
+    const { fetchMock, reports } = makeReportingFetch();
+
+    await createOTAController({ ...options, reportStatus: false }, fetchMock as unknown as typeof fetch, fs).check();
+    expect(reports).toHaveLength(0);
   });
 });

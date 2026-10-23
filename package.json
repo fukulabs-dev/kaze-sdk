@@ -70,8 +70,8 @@
     "zod": "^3.23.8"
   },
   "peerDependencies": {
-    "react": "*",
-    "react-native": "*"
+    "react": ">=18.2.0",
+    "react-native": ">=0.76.0"
   },
   "peerDependenciesMeta": {
     "react-native": {

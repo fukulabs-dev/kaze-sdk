@@ -57,7 +57,15 @@ class KazeModule(private val reactContext: ReactApplicationContext) : ReactConte
 
     @ReactMethod
     fun setBundleStable(hash: String) {
-        prefs.edit().putBoolean("ota_stable_$hash", true).commit()
+        prefs.edit()
+            .putBoolean("${KazeBundleLoader.KEY_STABLE_PREFIX}$hash", true)
+            .remove("${KazeBundleLoader.KEY_BOOT_ATTEMPTS_PREFIX}$hash")
+            .commit()
+    }
+
+    @ReactMethod
+    fun setBootVerificationEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KazeBundleLoader.KEY_BOOT_VERIFICATION, enabled).commit()
     }
 
     @ReactMethod
@@ -78,7 +86,7 @@ class KazeModule(private val reactContext: ReactApplicationContext) : ReactConte
                 promise.reject("SECURITY_ERROR", "Path traversal detected in $relativePath")
                 return
             }
-            val targetFile = File(reactContext.filesDir, relativePath)
+            val targetFile = File(KazeBundleLoader.baseDir(reactContext), relativePath)
             targetFile.parentFile?.mkdirs()
             if (isBase64) {
                 val bytes = Base64.decode(content, Base64.DEFAULT)
@@ -99,7 +107,7 @@ class KazeModule(private val reactContext: ReactApplicationContext) : ReactConte
                 promise.reject("SECURITY_ERROR", "Path traversal detected in $relativePath")
                 return
             }
-            val targetFile = File(reactContext.filesDir, relativePath)
+            val targetFile = File(KazeBundleLoader.baseDir(reactContext), relativePath)
             if (!targetFile.exists()) {
                 promise.resolve(null)
                 return
@@ -117,7 +125,7 @@ class KazeModule(private val reactContext: ReactApplicationContext) : ReactConte
                 promise.reject("SECURITY_ERROR", "Path traversal detected in $relativePath")
                 return
             }
-            val targetFile = File(reactContext.filesDir, relativePath)
+            val targetFile = File(KazeBundleLoader.baseDir(reactContext), relativePath)
             promise.resolve(targetFile.exists())
         } catch (e: Exception) {
             promise.reject("FILE_EXISTS_ERROR", e.message, e)
@@ -131,7 +139,7 @@ class KazeModule(private val reactContext: ReactApplicationContext) : ReactConte
                 promise.reject("SECURITY_ERROR", "Invalid path: $relativePath")
                 return
             }
-            val target = File(reactContext.filesDir, relativePath)
+            val target = File(KazeBundleLoader.baseDir(reactContext), relativePath)
             promise.resolve(!target.exists() || target.deleteRecursively())
         } catch (e: Exception) {
             promise.reject("FILE_DELETE_ERROR", e.message, e)
@@ -145,12 +153,12 @@ class KazeModule(private val reactContext: ReactApplicationContext) : ReactConte
                 promise.reject("SECURITY_ERROR", "Path traversal detected in arguments")
                 return
             }
-            val zipFile = File(reactContext.filesDir, zipRelativePath)
+            val zipFile = File(KazeBundleLoader.baseDir(reactContext), zipRelativePath)
             if (!zipFile.exists() || !zipFile.isFile) {
                 promise.reject("FILE_NOT_FOUND", "Source zip archive does not exist: $zipRelativePath")
                 return
             }
-            val targetDir = File(reactContext.filesDir, targetSlotDir)
+            val targetDir = File(KazeBundleLoader.baseDir(reactContext), targetSlotDir)
             if (!targetDir.exists()) {
                 targetDir.mkdirs()
             }

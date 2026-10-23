@@ -133,6 +133,8 @@ export function getDefaultFileSystemAdapter(): FileSystemAdapter {
 export interface StageBundleOptions {
   platform: 'android' | 'ios';
   bundleHash: string;
+  /** Release the bundle belongs to; kept in the slot so later launches can report its outcome. */
+  releaseId?: string;
   files: Record<string, string | Uint8Array>;
   fileSystem: FileSystemAdapter;
   targetDir?: string;
@@ -197,6 +199,9 @@ export async function stageBundle(options: StageBundleOptions): Promise<StageBun
     await options.fileSystem.writeFile(fullPath, content);
   }
 
+  if (options.releaseId) {
+    await options.fileSystem.writeFile(`${targetDir}/release.id`, options.releaseId);
+  }
   await options.fileSystem.writeFile(`${targetDir}/bundle.hash`, options.bundleHash);
 
   if (targetSlot) {
@@ -235,10 +240,14 @@ export async function unzipBundle(
   data: Uint8Array,
   platform: 'android' | 'ios'
 ): Promise<Record<string, string | Uint8Array>> {
-  // Check PK\x03\x04 signature (0x04034b50)
+  // Check PK\x03\x04 signature (0x04034b50). A bare JS file is refused: React Native resolves every
+  // bundled image next to the bundle file it loaded, so a bundle staged without its assets would
+  // show none of the app's images.
   if (data.length < 4 || data[0] !== 0x50 || data[1] !== 0x4b || data[2] !== 0x03 || data[3] !== 0x04) {
     const entrypoint = platform === 'android' ? 'index.android.bundle' : 'main.jsbundle';
-    return { [entrypoint]: data };
+    throw new Error(
+      `Bundle is not a zip archive. Serve a zip with ${entrypoint} and its assets at the root, as produced by react-native bundle --assets-dest`
+    );
   }
 
   const files: Record<string, string | Uint8Array> = {};

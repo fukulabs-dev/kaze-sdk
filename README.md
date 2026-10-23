@@ -21,7 +21,7 @@ Supports Android and iOS on both Bare React Native and Expo.
 
 - **Background updates**: checks for updates, downloads and stages new JS bundles without blocking the user, and activates them on the next cold launch (or right away if you choose).
 - **Integrity check**: every download is verified against the SHA-256 hash in the release manifest before it is unpacked, so corrupt or truncated archives are rejected.
-- **Crash guard**: if a new bundle hits a fatal JS error within 5 seconds of its first launch, it is blacklisted and the next launch falls back to the previous bundle or the one built into the app.
+- **Crash guard**: if a new bundle hits a fatal JS error within 5 seconds of its first launch, or keeps dying before it can start (native crash, out-of-memory kill), it is blacklisted, the next launch falls back to the previous bundle or the one built into the app, and the rollback is reported to the server. A rolled-back bundle is never downloaded again on that device.
 - **Safe staging**: updates are written to an inactive slot and only marked complete once every file is on disk, so an interrupted download never boots a half-written bundle.
 - **Store-update aware**: when users install a new app version from the App Store or Play Store, old OTA bundles are discarded automatically.
 - **React hook**: `useOTA()` exposes status, progress, and manual controls.
@@ -31,8 +31,8 @@ Supports Android and iOS on both Bare React Native and Expo.
 
 ## Requirements
 
-- React Native with the New Architecture. CI builds every change against React Native 0.88 on Android and iOS; older versions are not tested yet.
-- iOS 13.4+, Android minSdk 21+.
+- React Native 0.76 or newer with the New Architecture. CI builds every change against React Native 0.88 on Android and iOS; older versions are not tested yet.
+- iOS 13.4+, Android minSdk 24+.
 - Expo: development builds or `npx expo prebuild`. Expo Go cannot load the SDK's native module.
 - A Kaze server (or any server implementing the [Server API](#server-api) below).
 
@@ -71,6 +71,8 @@ Then regenerate native build folders:
 ```bash
 npx expo prebuild
 ```
+
+If the plugin cannot find where to load the OTA bundle in `MainApplication` or `AppDelegate`, prebuild prints a warning. Without the loader, updates download but never run, so add it by hand as in the bare setup below. Don't use Kaze together with `expo-updates`: both replace the JS bundle, and the plugin warns when `expo-updates` is installed.
 
 ---
 
@@ -192,7 +194,10 @@ Outside React, `createOTAController(options)` takes the same options and returns
 | `autoApply` | `'next-restart' \| 'immediate' \| 'manual'` | No | `'next-restart'` | `'next-restart'` downloads and stages in the background for the next cold launch; `'immediate'` also restarts the app once staged; `'manual'` only checks, so you call `downloadAndStage()` yourself. |
 | `autoCheck` | `boolean` | No | `true` | Check for updates on mount. |
 | `checkOnResume` | `boolean` | No | `false` | Check for updates when the app returns to the foreground. An update that is already staged is not downloaded again. |
-| `reportStatus` | `boolean` | No | `true` | Report `staged` and `failed` events to the Kaze server. |
+| `reportStatus` | `boolean` | No | `true` | Report `staged`, `failed`, `active`, and `rolled_back` events to the Kaze server. |
+| `requestTimeoutMs` | `number` | No | `15000` | Timeout for update checks and status reports. `0` disables it. |
+| `downloadTimeoutMs` | `number` | No | `120000` | Timeout for one bundle download attempt. `0` disables it. |
+| `downloadRetries` | `number` | No | `2` | Extra download attempts after a network error, timeout, or a 5xx, 408, or 429 response, waiting 1 s, then 2 s, and so on. Other 4xx responses and checksum mismatches are not retried. |
 | `currentHash` | `string` | No | Running OTA bundle | Hash of the bundle the app is running, sent to the server. Detected from the native loader when omitted. |
 | `deviceId` | `string` | No | - | Device identifier sent with checks and reports. |
 | `clientUuid` | `string` | No | - | Persistent client UUID for targeted rollout tracking. |
@@ -240,10 +245,13 @@ How it works:
 2. If a fatal JS error reaches React Native's global error handler inside the window, the bundle's hash is blacklisted synchronously in native storage, then the error is passed on to the previous handler, which normally crashes the app.
 3. On the next launch the native loader skips the blacklisted bundle and boots the previous slot, or the embedded bundle if there is none.
 4. If the window passes without a fatal error, the bundle is marked stable and is not guarded again.
+5. `useOTA` reports the outcome on its next check (on mount, or on resume with `checkOnResume`): `rolled_back` for the blacklisted bundle, `active` for a bundle that was marked stable. Each is sent once per device; a report that fails is retried on the following check. If the server offers a bundle this device rolled back, it is ignored.
 
-Limits: the guard only catches fatal JS errors that reach `ErrorUtils`. Native crashes, out-of-memory kills, and bundles that fail before `initBootGuard` runs (for example a syntax error in the bundle itself) are not caught.
+Bundles that die before the guard can see the error (a native crash, an out-of-memory kill, or an error thrown before `initBootGuard` runs) are caught by the native loader instead. Once `initBootGuard` has run, the loader counts every launch of an OTA bundle that has not been marked stable yet. After two such launches in a row, the next launch blacklists the bundle and boots the previous one, so users see at most two crashes. Two are allowed so that a user who closes the app inside the stability window once does not roll back a good bundle.
 
-To guard a specific hash yourself, pass `activeHash`; pass `activeHash: null` to turn the automatic check off.
+Limits: a crash after the stability window is not treated as a bad bundle. Because native rollback depends on the guard marking bundles stable, keep `initBootGuard` in every bundle you ship: a bundle without it is rolled back after two launches.
+
+To guard a specific hash yourself, pass `activeHash`; pass `activeHash: null` to turn the automatic check off. That also turns off the native rollback described above.
 
 ---
 
@@ -251,7 +259,7 @@ To guard a specific hash yourself, pass `activeHash`; pass `activeHash: null` to
 
 1. **Check**: the SDK asks the server for an update, sending the app ID, platform, runtime version, channel, and the hash of the running bundle. The response is validated, and a manifest for a different platform or runtime version is rejected.
 2. **Download and verify**: the bundle is downloaded and its SHA-256 hash is compared with the manifest before anything is written to disk.
-3. **Stage**: files are written to whichever of two slots (`slot_a`, `slot_b`) the app is not running from. `bundle.hash` is written last; until it exists, the native loader ignores the slot.
+3. **Stage**: files are written to whichever of two slots (`slot_a`, `slot_b`) the app is not running from. `bundle.hash` is written last; until it exists, the native loader ignores the slot. Slots live in `Library/Application Support/kaze/ota` on iOS (excluded from iCloud backup) and in `noBackupFilesDir/ota` on Android (excluded from Auto Backup). Bundles staged by 0.1.0-beta.2 or earlier, in `Documents/ota` or `filesDir/ota`, are moved there on the first launch.
 4. **Activate**: on the next cold launch (or immediately with `applyUpdate()`), the native loader boots the newest complete, non-blacklisted slot, falls back to the other slot, and finally to the bundle built into the app.
 
 ### App Store / Play Store updates
@@ -299,15 +307,24 @@ Respond with `{ "updateAvailable": false }` when there is nothing new, including
 
 ### `POST /api/v1/updates/report`
 
-JSON body with `appId`, `releaseId`, `status` (the SDK sends `staged` and `failed`), and optionally `platform`, `runtimeVersion`, `bundleHash`, `deviceId`, `clientUuid`, `reason`, `error`. Respond with `{ "success": true }`.
+JSON body with `appId`, `releaseId`, `status`, and optionally `platform`, `runtimeVersion`, `bundleHash`, `deviceId`, `clientUuid`, `reason`, `error`. Respond with `{ "success": true }`.
+
+| `status` | Sent when |
+|---|---|
+| `staged` | The bundle was downloaded, verified, and staged for the next launch. |
+| `failed` | Download, verification, or staging failed. `reason` has the error. |
+| `active` | The bundle booted and passed the boot guard window. |
+| `rolled_back` | The bundle hit a fatal error in the boot guard window and the device went back to the previous bundle. Pause the rollout when these come in. |
 
 ### Bundle archive
 
-`bundleUrl` serves either a single JS bundle file or a zip archive (stored or deflate) with:
+`bundleUrl` serves a zip archive (stored or deflate) with:
 
 - the entry bundle at the root: `index.android.bundle` on Android, `main.jsbundle` on iOS;
-- assets next to it, in the layout `react-native bundle --assets-dest` produces (`drawable-*` folders on Android, `assets/` on iOS);
+- **all** of the app's assets next to it, in the layout `react-native bundle --assets-dest` produces (`drawable-*` folders on Android, `assets/` on iOS), not only the ones that changed;
 - no absolute paths or `..` segments (such archives are rejected).
+
+A bare JS file is rejected with an error and reported as `failed`. React Native loads every bundled image from next to the bundle file it booted, so a bundle without its assets would show none of the app's images.
 
 For example, for Android:
 

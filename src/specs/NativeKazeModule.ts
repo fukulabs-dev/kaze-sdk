@@ -8,6 +8,7 @@ export interface Spec extends TurboModule {
   isBundleBlacklisted(hash: string): Promise<boolean>;
   setBundleStable(hash: string): void;
   clearBlacklist(): void;
+  setBootVerificationEnabled(enabled: boolean): void;
   restartApp(): void;
   writeBundleFile(relativePath: string, content: string, isBase64: boolean): Promise<boolean>;
   readBundleFile(relativePath: string): Promise<string | null>;
